@@ -13,10 +13,10 @@ class ActionRescaler(gym.ActionWrapper):
         super().__init__(env)
         high = np.ones(env.action_space.shape, dtype=np.float32)
         self.action_space = gym.spaces.Box(low=-high, high=high)
-        true_low = env.action_space.low
-        true_high = env.action_space.high
-        self.bias = (true_high + true_low) / 2
-        self.scale = (true_high - true_low) / 2
+        self.true_low = env.action_space.low
+        self.true_high = env.action_space.high
+        self.bias = (self.true_high + self.true_low) / 2
+        self.scale = (self.true_high - self.true_low) / 2
 
     def action(self, action):
         return self.bias + self.scale * np.clip(action, -1, 1)

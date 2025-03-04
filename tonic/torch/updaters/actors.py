@@ -1,8 +1,10 @@
 import torch
 
 from tonic.torch import models, updaters  # noqa
+import tonic.torch.agents.diffusion_utils as du
+from tonic.torch.agents.diffusion_utils.ema_helper.ema import ExponentialMovingAverage as ema
 
-
+from tonic.torch.agents.diffusion_utils.denoiser_networks import ConditionalMLP
 FLOAT_EPSILON = 1e-8
 
 
@@ -462,3 +464,204 @@ class MaximumAPosterioriPolicyOptimization:
             alpha_std_loss=alpha_std_loss.detach(),
             temperature_loss=temperature_loss.detach(),
             **dual_variables)
+
+
+
+class DiffusionMaximumAPosterioriPolicyOptimization:
+    def __init__(
+        self, num_samples=20, epsilon=1e-1, epsilon_penalty=1e-3,
+        epsilon_mean=1e-3, epsilon_std=1e-6, initial_log_temperature=1.,
+        initial_log_alpha_mean=1., initial_log_alpha_std=10.,
+        min_log_dual=-18., per_dim_constraining=True, action_penalization=True,
+        actor_optimizer=None, dual_optimizer=None, gradient_clip=0
+    ):
+        self.num_samples = num_samples
+        self.epsilon = epsilon
+        self.epsilon_mean = epsilon_mean
+        self.epsilon_std = epsilon_std
+        self.initial_log_temperature = initial_log_temperature
+        self.initial_log_alpha_mean = initial_log_alpha_mean
+        self.initial_log_alpha_std = initial_log_alpha_std
+        self.min_log_dual = torch.as_tensor(min_log_dual, dtype=torch.float32)
+        self.action_penalization = action_penalization
+        self.epsilon_penalty = epsilon_penalty
+        self.per_dim_constraining = per_dim_constraining
+        self.actor_optimizer = actor_optimizer or (
+            lambda params: torch.optim.Adam(params, lr=3e-4))
+        self.dual_optimizer = actor_optimizer or (
+            lambda params: torch.optim.Adam(params, lr=1e-2))
+        self.gradient_clip = gradient_clip
+
+    def initialize(self, model, action_space):
+        self.model = model
+        self.denoiser = self.model.actor.head.model
+        self.actor_variables = models.trainable_variables(self.model.actor)
+        self.actor_optimizer = self.actor_optimizer(self.actor_variables)
+
+        # Dual variables.
+        self.dual_variables = []
+        self.log_temperature = torch.nn.Parameter(torch.as_tensor(
+            [self.initial_log_temperature], dtype=torch.float32))
+        self.dual_variables.append(self.log_temperature)
+        shape = [action_space.shape[0]] if self.per_dim_constraining else [1]
+        self.log_alpha_mean = torch.nn.Parameter(torch.full(
+            shape, self.initial_log_alpha_mean, dtype=torch.float32))
+        self.dual_variables.append(self.log_alpha_mean)
+        self.log_alpha_std = torch.nn.Parameter(torch.full(
+            shape, self.initial_log_alpha_std, dtype=torch.float32))
+        self.dual_variables.append(self.log_alpha_std)
+        if self.action_penalization:
+            self.log_penalty_temperature = torch.nn.Parameter(torch.as_tensor(
+                [self.initial_log_temperature], dtype=torch.float32))
+            self.dual_variables.append(self.log_penalty_temperature)
+        self.dual_optimizer = self.dual_optimizer(self.dual_variables)
+
+    def __call__(self, observations):
+        
+        def parametric_kl_and_dual_losses(kl, alpha, epsilon):
+            kl_mean = kl.mean(dim=0)
+            kl_loss = (alpha.detach() * kl_mean).sum()
+            alpha_loss = (alpha * (epsilon - kl_mean.detach())).sum()
+            return kl_loss, alpha_loss
+        
+        def c_skip_fn(sigma, sigma_data):
+            return sigma_data**2 / (sigma**2 + sigma_data**2)
+
+        def c_out_fn(sigma, sigma_data):
+            return sigma * sigma_data / torch.sqrt(sigma_data**2 + sigma**2)
+
+        def c_in_fn(sigma, sigma_data):
+            return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
+
+        def c_noise_fn(sigma):
+            return torch.log(sigma)
+        
+        def score_matching_loss(action, state, q_weights, sigma_data, training=False):
+            p_mean = -1.2
+            p_std  =  1.2
+
+            batch_size = state.shape[0]
+            log_sigma = p_mean + p_std * torch.randn(batch_size, device=action.device, dtype=action.dtype)
+            sigma = torch.exp(log_sigma).unsqueeze(-1)
+
+
+            z = sigma * torch.randn_like(action)
+
+            c_skip  = c_skip_fn(sigma, sigma_data)
+            c_out   = c_out_fn(sigma, sigma_data)
+            c_in    = c_in_fn(sigma, sigma_data)
+            c_noise = c_noise_fn(sigma)
+            lam     = 1.0 / (c_out[:, 0]**2)
+
+            noisy_action = c_in * (action + z)
+            c_noise_expanded = c_noise.expand(-1, 1)
+            c_noise_expanded = c_noise_expanded.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
+            state_expanded  = state.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
+            inp = torch.cat([noisy_action, c_noise_expanded], dim=-1)
+            out = self.denoiser(inp, state_expanded)
+
+            residual = out - (1.0 / c_out) * (action - c_skip*(action + z))
+            unweighted_loss = torch.mean(residual**2, dim=-1)
+            effective_weight = lam * (c_out[:, 0]**2)
+            loss_tensor = effective_weight*unweighted_loss*q_weights
+            loss = loss_tensor.sum(dim=0)
+            return loss.mean()
+
+        def weights_and_temperature_loss(q_values, epsilon, temperature):
+            tempered_q_values = q_values.detach() / temperature
+            weights = torch.nn.functional.softmax(tempered_q_values, dim=0)
+            weights = weights.detach()
+
+            # Temperature loss (dual of the E-step).
+            q_log_sum_exp = torch.logsumexp(tempered_q_values, dim=0)
+            num_actions = torch.as_tensor(
+                q_values.shape[0], dtype=torch.float32)
+            log_num_actions = torch.log(num_actions)
+            loss = epsilon + (q_log_sum_exp).mean() - log_num_actions
+            loss = temperature * loss
+
+            return weights, loss
+
+        # Use independent normals to satisfy KL constraints per-dimension.
+        def independent_normals(distribution_1, distribution_2=None):
+            distribution_2 = distribution_2 or distribution_1
+            return torch.distributions.independent.Independent(
+                torch.distributions.normal.Normal(
+                    distribution_1.mean, distribution_2.stddev), -1)
+
+        with torch.no_grad():
+            self.log_temperature.data.copy_(
+                torch.maximum(self.min_log_dual, self.log_temperature))
+            self.log_alpha_mean.data.copy_(
+                torch.maximum(self.min_log_dual, self.log_alpha_mean))
+            self.log_alpha_std.data.copy_(
+                torch.maximum(self.min_log_dual, self.log_alpha_std))
+            if self.action_penalization:
+                self.log_penalty_temperature.data.copy_(torch.maximum(
+                    self.min_log_dual, self.log_penalty_temperature))
+
+            actions = self.model.target_actor(observations,self.num_samples)
+
+            
+
+            tiled_observations = updaters.tile(observations, self.num_samples)
+            flat_observations = updaters.merge_first_two_dims(
+                tiled_observations)
+            flat_actions = updaters.merge_first_two_dims(actions)
+            values = self.model.target_critic(flat_observations, flat_actions)
+            values = values.view(self.num_samples, -1)
+
+
+
+        self.actor_optimizer.zero_grad()
+        self.dual_optimizer.zero_grad()
+
+        
+
+        temperature = torch.nn.functional.softplus(
+            self.log_temperature) + FLOAT_EPSILON
+        weights, temperature_loss = weights_and_temperature_loss(
+            values, self.epsilon, temperature)
+
+        # Action penalization is quadratic beyond [-1, 1].
+        if self.action_penalization:
+            penalty_temperature = torch.nn.functional.softplus(
+                self.log_penalty_temperature) + FLOAT_EPSILON
+            diff_bounds = actions - torch.clamp(actions, -1, 1)
+            action_bound_costs = -torch.norm(diff_bounds, dim=-1)
+            penalty_weights, penalty_temperature_loss = \
+                weights_and_temperature_loss(
+                    action_bound_costs,
+                    self.epsilon_penalty, penalty_temperature)
+            weights += penalty_weights
+            temperature_loss += penalty_temperature_loss
+
+
+
+        policy_loss = score_matching_loss(actions,observations,weights,1)
+        
+        
+        dual_loss = temperature_loss
+        loss = policy_loss + dual_loss
+
+        loss.backward()
+        if self.gradient_clip > 0:
+            torch.nn.utils.clip_grad_norm_(
+                self.actor_variables, self.gradient_clip)
+            torch.nn.utils.clip_grad_norm_(
+                self.dual_variables, self.gradient_clip)
+        self.actor_optimizer.step()
+        self.dual_optimizer.step()
+
+        dual_variables = dict(
+            temperature=temperature.detach())
+        if self.action_penalization:
+            dual_variables['penalty_temperature'] = \
+                penalty_temperature.detach()
+
+        return dict(
+            policy_loss=policy_loss.detach(),
+            temperature_loss=temperature_loss.detach(),
+            **dual_variables)
+        
+        

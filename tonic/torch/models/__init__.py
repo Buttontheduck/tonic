@@ -3,10 +3,12 @@ from .actor_critics import ActorCriticWithTargets
 from .actor_critics import ActorTwinCriticWithTargets
 
 from .actors import Actor
+from .actors import DiffusionActor
 from .actors import DetachedScaleGaussianPolicyHead
 from .actors import DeterministicPolicyHead
 from .actors import GaussianPolicyHead
 from .actors import SquashedMultivariateNormalDiag
+from .actors import DiffusionPolicyHead
 
 from .critics import Critic, DistributionalValueHead, ValueHead
 
@@ -20,4 +22,4 @@ __all__ = [
     ObservationEncoder, SquashedMultivariateNormalDiag,
     DetachedScaleGaussianPolicyHead, GaussianPolicyHead,
     DeterministicPolicyHead, Actor, Critic, DistributionalValueHead,
-    ValueHead, ActorCritic, ActorCriticWithTargets, ActorTwinCriticWithTargets]
+    ValueHead, ActorCritic, ActorCriticWithTargets, ActorTwinCriticWithTargets, DiffusionPolicyHead]

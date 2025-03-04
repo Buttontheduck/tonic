@@ -8,6 +8,6 @@ from .ppo import PPO
 from .sac import SAC
 from .td3 import TD3
 from .trpo import TRPO
+from .dmpo import DMPO
 
-
-__all__ = [Agent, A2C, DDPG, D4PG, MPO, PPO, SAC, TD3, TRPO]
+__all__ = [Agent, A2C, DDPG, D4PG, MPO, PPO, SAC, TD3, TRPO, DMPO]

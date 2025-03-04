@@ -5,7 +5,7 @@ import time
 import numpy as np
 import termcolor
 import yaml
-
+import wandb
 
 current_logger = None
 
@@ -64,6 +64,7 @@ class Logger:
         # Compute statistics if needed.
         keys = list(self.epoch_dict.keys())
         for key in keys:
+            print(key)
             values = self.epoch_dict[key]
             if key in self.stat_keys:
                 self.epoch_dict[key + '/mean'] = np.mean(values)
@@ -90,6 +91,7 @@ class Logger:
             self.console_formats = []
             known_keys = set()
             for key in self.final_keys:
+                print(key)
                 *left_keys, right_key = key.split('/')
                 for i, k in enumerate(left_keys):
                     left_key = '/'.join(left_keys[:i + 1])
@@ -104,6 +106,7 @@ class Logger:
         # Display the values following the layout.
         print()
         for left, key in self.console_formats:
+            print(key)
             if key:
                 val = self.epoch_dict.get(key)
                 str_type = str(type(val))
@@ -161,6 +164,7 @@ class Logger:
             with open(self.log_file_path, 'a') as file:
                 file.write(','.join(map(str, vals)) + '\n')
 
+        wandb.log(self.epoch_dict)
         self.epoch_dict.clear()
         self.last_epoch_progress = None
         self.last_epoch_time = time.time()

@@ -5,7 +5,7 @@ import os
 
 import tonic
 import yaml
-
+import wandb
 
 def train(
     header, agent, environment, test_environment, trainer, before_training,
@@ -118,6 +118,7 @@ def train(
     path = os.path.join(environment_name, name, str(seed))
     tonic.logger.initialize(path, script_path=__file__, config=args)
 
+    wandb.init(project="test dmpo", config=args)
     # Build the trainer.
     trainer = trainer or 'tonic.Trainer()'
     trainer = eval(trainer)
@@ -148,7 +149,7 @@ if __name__ == '__main__':
     parser.add_argument('--before_training')
     parser.add_argument('--after_training')
     parser.add_argument('--parallel', type=int, default=1)
-    parser.add_argument('--sequential', type=int, default=1)
+    parser.add_argument('--sequential', type=int, default=5)
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--name')
     parser.add_argument('--environment_name')

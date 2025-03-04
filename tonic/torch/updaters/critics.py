@@ -280,3 +280,50 @@ class ExpectedSARSA:
         self.optimizer.step()
 
         return dict(loss=loss.detach(), q=values.detach())
+
+
+class DiffusionExpectedSARSA:
+    def __init__(
+        self, num_samples=20, loss=None, optimizer=None, gradient_clip=0
+    ):
+        self.num_samples = num_samples
+        self.loss = loss or torch.nn.MSELoss()
+        self.optimizer = optimizer or (
+            lambda params: torch.optim.Adam(params, lr=3e-4))
+        self.gradient_clip = gradient_clip
+
+    def initialize(self, model):
+        self.model = model
+        self.variables = models.trainable_variables(self.model.critic)
+        self.optimizer = self.optimizer(self.variables)
+
+    def __call__(
+        self, observations, actions, next_observations, rewards, discounts
+    ):
+
+        # Approximate the expected next values.
+        with torch.no_grad():
+            next_actions = self.model.target_actor(
+                next_observations,self.num_samples)
+            next_actions = updaters.merge_first_two_dims(next_actions)
+            next_observations = updaters.tile(
+                next_observations, self.num_samples)
+            next_observations = updaters.merge_first_two_dims(
+                next_observations)
+            next_values = self.model.target_critic(
+                next_observations, next_actions)
+            next_values = next_values.view(self.num_samples, -1)
+            next_values = next_values.mean(dim=0)
+            returns = rewards + discounts * next_values
+
+
+        self.optimizer.zero_grad()
+        values = self.model.critic(observations, actions)
+        loss = self.loss(returns, values)
+
+        loss.backward()
+        if self.gradient_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.variables, self.gradient_clip)
+        self.optimizer.step()
+
+        return dict(loss=loss.detach(), q=values.detach())

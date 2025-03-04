@@ -41,6 +41,7 @@ class Trainer:
 
         while True:
             # Select actions.
+            print(f"\nsteps = {self.steps}")
             actions = self.agent.step(observations, self.steps)
             assert not np.isnan(actions.sum())
             logger.store('train/action', actions, stats=True)
@@ -128,11 +129,14 @@ class Trainer:
                 actions = self.agent.test_step(
                     self.test_observations, self.steps)
                 assert not np.isnan(actions.sum())
+       
+                
                 logger.store('test/action', actions, stats=True)
 
                 # Take a step in the environment.
                 self.test_observations, infos = self.test_environment.step(
                     actions)
+                #
                 self.agent.test_update(**infos, steps=self.steps)
 
                 score += infos['rewards'][0]

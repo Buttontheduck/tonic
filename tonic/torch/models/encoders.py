@@ -29,3 +29,5 @@ class ObservationActionEncoder(torch.nn.Module):
         if self.observation_normalizer:
             observations = self.observation_normalizer(observations)
         return torch.cat([observations, actions], dim=-1)
+    
+

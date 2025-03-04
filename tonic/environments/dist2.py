@@ -1,7 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Feb 13 05:38:45 2025
+
+@author: batin13
+"""
+
 '''Builders for distributed training.'''
 
 import multiprocessing
-import time
+
 import numpy as np
 
 
@@ -14,16 +22,19 @@ class Sequential:
         self.observation_space = self.environments[0].observation_space
         self.action_space = self.environments[0].action_space
         self.name = self.environments[0].name
+        self.n_env =len(self.environments)
+        self.n_seed = np.zeros(self.n_env)
 
     def initialize(self, seed):
-        for i, environment in enumerate(self.environments):
-            environment.seed(seed + i)
+        for i in range(0,self.n_env):
+            self.n_seed[i] = seed + i
+
+
 
     def start(self):
         '''Used once to get the initial observations.'''
-        observations = [env.reset() for env in self.environments]
+        observations = [env.reset(seed=int(self.n_seed[i])) for i, env in enumerate(self.environments)]
         self.lengths = np.zeros(len(self.environments), int)
-        self.counter = 0
         return np.array(observations, np.float32)
 
     def step(self, actions):
@@ -31,18 +42,20 @@ class Sequential:
         rewards = []
         resets = []
         terminations = []
+        truncation = []
         observations = []  # Observations for the actions selection.
-        self.counter +=1
+
         for i in range(len(self.environments)):
-            ob, rew, term, _ = self.environments[i].step(actions[i])
+            ob, rew, term, trun, _ = self.environments[i].step(actions[i])
 
             self.lengths[i] += 1
             # Timeouts trigger resets but are not true terminations.
-            reset = term or self.lengths[i] == self.max_episode_steps
+            reset = term or trun or self.lengths[i] == self.max_episode_steps
             next_observations.append(ob)
             rewards.append(rew)
             resets.append(reset)
             terminations.append(term)
+            truncation.append(trun)
 
             if reset:
                 ob = self.environments[i].reset()
@@ -68,8 +81,7 @@ class Sequential:
 
 
 class Parallel:
-    '''A group of seq
-        self.started = Falseuential environments used in parallel.'''
+    '''A group of sequential environments used in parallel.'''
 
     def __init__(
         self, environment_builder, worker_groups, workers_per_group,
@@ -100,6 +112,7 @@ class Parallel:
         self.observation_space = dummy_environment.observation_space
         self.action_space = dummy_environment.action_space
         del dummy_environment
+        self.started = False
 
         self.output_queue = multiprocessing.Queue()
         self.action_pipes = []
