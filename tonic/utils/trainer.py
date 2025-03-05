@@ -10,7 +10,7 @@ class Trainer:
     '''Trainer used to train and evaluate an agent on an environment.'''
 
     def __init__(
-        self, steps=int(1e7), epoch_steps=int(2e4), save_steps=int(5e5),
+        self, steps=int(1e7), epoch_steps=int(1000), save_steps=int(5e5),
         test_episodes=5, show_progress=True, replace_checkpoint=False,
     ):
         self.max_steps = steps
@@ -41,7 +41,7 @@ class Trainer:
 
         while True:
             # Select actions.
-            print(f"\nsteps = {self.steps}")
+
             actions = self.agent.step(observations, self.steps)
             assert not np.isnan(actions.sum())
             logger.store('train/action', actions, stats=True)
@@ -64,6 +64,7 @@ class Trainer:
             # Check the finished episodes.
             for i in range(num_workers):
                 if infos['resets'][i]:
+                    #print(scores[i])
                     logger.store('train/episode_score', scores[i], stats=True)
                     logger.store(
                         'train/episode_length', lengths[i], stats=True)
@@ -95,6 +96,7 @@ class Trainer:
                 epoch_steps = 0
 
             # End of training.
+            #print(f"steps = {self.steps}")
             stop_training = self.steps >= self.max_steps
 
             # Save a checkpoint.

@@ -201,84 +201,117 @@ class DiffusionPolicyHead(torch.nn.Module):
         action_final = torch.from_numpy(final_result).to(self.device).reshape(shape)
         return action_final
 
-    # Modified DDIM sampling with condition
-    def sample_ddim(self, state, eta=0):
     
-        # Setup for sampling
+    def sample_ddim(self, state, eta=0, num_sample=None):
+        """
+        DDIM sampling that generates either a single sample or multiple samples per state.
+
+        Returns tensor of shape [num_sample, batch_size, action_dim] if num_sample is given,
+        otherwise tensor of shape [batch_size, action_dim].
+        """
+        # Setup sampling parameters
         max_sigma = 80.0
         min_sigma = 1e-4
-
-        # Generate sigmas (noise levels) for DDIM sampling
         sigmas = torch.exp(torch.linspace(
             torch.log(torch.tensor(max_sigma)),
             torch.log(torch.tensor(min_sigma)),
             self.n_diffusion_steps + 1
         )).to(self.device)
 
-
         batch_size = state.shape[0]
-        # Generate initial noise if not provided
 
-        z = max_sigma * torch.randn(batch_size, self.action_dim, device=self.device)
+        if num_sample is not None:
+            # For multiple samples, generate noise of shape [num_sample, batch_size, action_dim]
+            # This ensures the output will be [num_sample, batch_size, action_dim]
+            z = max_sigma * torch.randn(num_sample, batch_size, self.action_dim, device=self.device)
 
-        # Initial sample is the noise
-        x = z
+            # We need to process all samples together, so reshape state and noise for batch processing
+            # Reshape state to [num_sample*batch_size, state_dim]
+            state_flat = state.unsqueeze(0).expand(num_sample, -1, -1).reshape(-1, state.shape[-1])
 
-        # DDIM sampling loop
-        for i in range(self.n_diffusion_steps):
-            # Current and next sigma
-            sigma_i = sigmas[i]
-            sigma_next = sigmas[i + 1]
+            # Reshape noise to [num_sample*batch_size, action_dim]
+            x_flat = z.reshape(-1, self.action_dim)
 
-            # Create properly shaped sigma tensor for batch
-            sigma = torch.ones((x.shape[0], 1), device=self.device) * sigma_i
+            # DDIM sampling loop for flattened tensors
+            for i in range(self.n_diffusion_steps):
+                sigma_i = sigmas[i]
+                sigma_next = sigmas[i + 1]
 
-            # Predict the denoised sample at current noise level using the condition
-            with torch.no_grad():
-                denoised = self.denoiser_fn( x, sigma, state)
+                # Create properly shaped sigma tensor
+                sigma_flat = torch.ones((x_flat.shape[0], 1), device=self.device) * sigma_i
 
-            # DDIM update formula
-            x0_pred = denoised
+                # Predict denoised sample
+                with torch.no_grad():
+                    denoised_flat = self.denoiser_fn(x_flat, sigma_flat, state_flat)
 
-            # Direction to x_0
-            dir_x0 = (x - x0_pred) / sigma_i
+                # DDIM update formula
+                x0_pred = denoised_flat
+                dir_x0 = (x_flat - x0_pred) / sigma_i
 
-            # Apply step
-            if eta > 0:
-                # If eta > 0, add some randomness (stochastic sampling)
-                noise = torch.randn_like(x)
-                sigma_t = eta * (sigma_next**2 / sigma_i**2).sqrt() * (1 - (sigma_next**2 / sigma_i**2)).sqrt()
-                x = x0_pred + dir_x0 * sigma_next + noise * sigma_t
-            else:
-                # Deterministic DDIM sampling (no additional noise)
-                x = x0_pred + dir_x0 * sigma_next
+                # Apply step
+                if eta > 0:
+                    # Stochastic DDIM
+                    noise = torch.randn_like(x_flat)
+                    sigma_t = eta * (sigma_next**2 / sigma_i**2).sqrt() * (1 - (sigma_next**2 / sigma_i**2)).sqrt()
+                    x_flat = x0_pred + dir_x0 * sigma_next + noise * sigma_t
+                else:
+                    # Deterministic DDIM
+                    x_flat = x0_pred + dir_x0 * sigma_next
+
+            # Reshape back to [num_sample, batch_size, action_dim]
+            x = x_flat.reshape(num_sample, batch_size, self.action_dim)
+
+        else:
+            # Single sample case - original implementation
+            z = max_sigma * torch.randn(batch_size, self.action_dim, device=self.device)
+            x = z
+
+            for i in range(self.n_diffusion_steps):
+                sigma_i = sigmas[i]
+                sigma_next = sigmas[i + 1]
+
+                sigma = torch.ones((batch_size, 1), device=self.device) * sigma_i
+
+                with torch.no_grad():
+                    denoised = self.denoiser_fn(x, sigma, state)
+
+                x0_pred = denoised
+                dir_x0 = (x - x0_pred) / sigma_i
+
+                if eta > 0:
+                    noise = torch.randn_like(x)
+                    sigma_t = eta * (sigma_next**2 / sigma_i**2).sqrt() * (1 - (sigma_next**2 / sigma_i**2)).sqrt()
+                    x = x0_pred + dir_x0 * sigma_next + noise * sigma_t
+                else:
+                    x = x0_pred + dir_x0 * sigma_next
 
         return x
     
 
-    def forward(self,state,num_sample=None):
-        
-        
-        if num_sample==None:
-            action = []
-            if self.sampler_type =='ddim':  
-                a = self.sample_ddim(state)
-                action = a
-            elif self.sampler_type =='ode':
-                a = self.sample_ode(state)
-                action = a
+    def forward(self, state, num_sample=None):
+        """
+        Forward pass to generate action samples given states.
+        Args:
+            state: Tensor of shape [batch_size, state_dim]
+            num_sample: Optional int, number of action samples to generate per state
+
+        Returns:
+            If num_sample is None: Tensor of shape [batch_size, action_dim]
+            If num_sample is given: Tensor of shape [num_sample, batch_size, action_dim]
+        """
+        if num_sample is None:
+            # Single sample case
+            if self.sampler_type == 'ddim':
+                action = self.sample_ddim(state)
+            elif self.sampler_type == 'ode':
+                action = self.sample_ode(state)
         else:
-             
-            action = []
-            if self.sampler_type =='ddim':  
-                for n in range(0,num_sample):
-                    a = self.sample_ddim(state)
-                    action.append(a)
-            elif self.sampler_type =='ode':
-                for n in range(0,num_sample):
-                    a = self.sample_ode(state)
-                    action.append(a)
-            action = torch.stack(action) 
+            # Multiple samples case - vectorized
+            if self.sampler_type == 'ddim':
+                action = self.sample_ddim(state, num_sample=num_sample)
+            elif self.sampler_type == 'ode':
+                action = self.sample_ode(state, num_sample=num_sample)
+
         return action
 
 
@@ -330,48 +363,3 @@ class DiffusionActor(torch.nn.Module):
         return self.head(out,samples)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    """
-    
-    def forward(self, state, num_sample=None):
-        if num_sample is None:
-            if self.sampler_type == 'ddim':
-                return self.sample_ddim(state)
-            elif self.sampler_type == 'ode':
-                return self.sample_ode(state)
-        else:
-            # Add a batch dimension and replicate `state` num_sample times.
-            # This assumes `state` is a tensor, e.g., shape [D]
-            # Adjust if your state has more dimensions.
-            state_batch = state.unsqueeze(0).repeat(num_sample, *([1] * len(state.shape)))
-
-            if self.sampler_type == 'ddim':
-                return self.sample_ddim(state_batch)
-            elif self.sampler_type == 'ode':
-                return self.sample_ode(state_batch)
-
-    """

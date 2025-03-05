@@ -311,8 +311,7 @@ class ConditionalMLP(nn.Module):
 
         self.sigma_data = sigma_data
 
-        
-
+    
         # Main network with additional input for condition
         layers = []
         # 4 = 2 (data dimension) + 1 (noise level) + 1 (condition)
