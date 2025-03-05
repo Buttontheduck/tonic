@@ -11,7 +11,7 @@ def default_model():
         actor=models.DiffusionActor(
             encoder=IdentityEncoder(),
             torso=IdentityTorso(),
-            head=models.DiffusionPolicyHead()),
+            head=models.DiffusionPolicyHead(hidden_dim=100,n_hidden=2)),
         critic=models.Critic(
             encoder=models.ObservationActionEncoder(),
             torso=models.MLP((256, 256), torch.nn.ReLU),
@@ -20,10 +20,7 @@ def default_model():
 
 
 class DMPO(agents.Agent):
-    '''Maximum a Posteriori Policy Optimisation.
-    MPO: https://arxiv.org/pdf/1806.06920.pdf
-    MO-MPO: https://arxiv.org/pdf/2005.07513.pdf
-    '''
+    
 
     def __init__(
         self, model=None, replay=None, actor_updater=None, critic_updater=None
@@ -81,7 +78,7 @@ class DMPO(agents.Agent):
     def _test_step(self, observations):
         observations = torch.as_tensor(observations, dtype=torch.float32)
         with torch.no_grad():
-            return self.model.actor(observations).loc
+            return self.model.actor(observations)
 
     def _update(self, steps):
         keys = ('observations', 'actions', 'next_observations', 'rewards',
@@ -101,6 +98,8 @@ class DMPO(agents.Agent):
             self.model.observation_normalizer.update()
         if self.model.return_normalizer:
             self.model.return_normalizer.update()
+            
+
 
     def _update_actor_critic(
         self, observations, actions, next_observations, rewards, discounts

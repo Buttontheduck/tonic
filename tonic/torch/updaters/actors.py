@@ -437,7 +437,7 @@ class MaximumAPosterioriPolicyOptimization:
         policy_loss = policy_mean_loss + policy_std_loss
         kl_loss = kl_mean_loss + kl_std_loss
         dual_loss = alpha_mean_loss + alpha_std_loss + temperature_loss
-        loss = policy_loss + kl_loss + dual_loss
+        loss = policy_loss + kl_loss*0 + dual_loss
 
         loss.backward()
         if self.gradient_clip > 0:
