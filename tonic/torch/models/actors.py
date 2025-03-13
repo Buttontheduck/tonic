@@ -124,7 +124,7 @@ class DeterministicPolicyHead(torch.nn.Module):
 
 
 class DiffusionPolicyHead(torch.nn.Module):
-    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim'):
+    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp'):
         
         self.device = device
         self.hidden_dim = hidden_dim
@@ -133,6 +133,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         self.sampler_type=sampler_type
         self.n_blocks = n_blocks
         self.n_diffusion_steps = num_diffusion_steps
+        self.model_type = model_type
 
 
     def initialize(self, state_size, action_size):
@@ -141,8 +142,14 @@ class DiffusionPolicyHead(torch.nn.Module):
         self.action_dim = action_size
         input_dim = self.state_dim + self.action_dim +1
         
-        self.model = ConditionalMLP(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data)
         
+        if self.model_type=='mlp':
+            self.model = ConditionalMLP(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data)
+        elif self.model_type=='resnet':
+            self.model= ConditionalResNet1D(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data)
+        else:
+            raise  ValueError("\n Model type should be either 'mlp' or  'resnet' \n")
+            
 
     def c_skip_fn(self,sigma, sigma_data):
         return sigma_data**2 / (sigma**2 + sigma_data**2)
@@ -346,20 +353,27 @@ class DiffusionActor(torch.nn.Module):
         self.head = head
 
     def initialize(
-        self, observation_space, action_space, observation_normalizer=None
+        self, observation_space, action_space, observation_normalizer=None,actor_squash =False,actor_scale=1,
     ):
         size = self.encoder.initialize(
             observation_space)
         size = self.torso.initialize(size)
         action_size = action_space.shape[0]
         self.head.initialize(size, action_size)
-
+        self.actor_squash = actor_squash
+        self.actor_scale  = actor_scale
     def forward(self, *inputs):
         samples =None        
         out = self.encoder(*inputs)
         out = self.torso(out)
         if len(out) > 1 and isinstance(out, tuple):
             out,samples = out
-        return self.head(out,samples)
+            
+        pred = self.head(out,samples)
+        
+        if self.actor_squash:
+            pred = torch.tanh(pred) * self.actor_scale
+            
+        return pred
 
 

@@ -341,5 +341,4 @@ class ConditionalMLP(nn.Module):
         # condition should be a scalar between 0 and 1
         inp = torch.cat([x, condition], dim=-1)
         output = self.network(inp)
-        output = torch.tanh(output)
         return output

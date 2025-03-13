@@ -10,7 +10,7 @@ class Trainer:
     '''Trainer used to train and evaluate an agent on an environment.'''
 
     def __init__(
-        self, steps=int(1e7), epoch_steps=int(1000), save_steps=int(5e5),
+        self, steps=int(11000), epoch_steps=int(1000), save_steps=int(5e5),
         test_episodes=5, show_progress=True, replace_checkpoint=False,
     ):
         self.max_steps = steps
@@ -36,7 +36,7 @@ class Trainer:
         num_workers = len(observations)
         scores = np.zeros(num_workers)
         lengths = np.zeros(num_workers, int)
-        self.steps, epoch_steps, epochs, episodes = 0, 0, 0, 0
+        self.steps, epoch_steps, epochs, episodes = 9000, 0, 0, 0
         steps_since_save = 0
 
         while True:
