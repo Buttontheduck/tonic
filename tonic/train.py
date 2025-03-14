@@ -4,10 +4,15 @@ import argparse
 import os
 
 import tonic
+import tonic.torch
 import yaml
 import wandb
 
-def train(
+from tonic.utils.trainer import Trainer as trainer_fun
+from tonic.torch.agents.dmpo import DMPO 
+
+
+def train(wandb_config,trainer_config,agent_config,
     header, agent, environment, test_environment, trainer, before_training,
     after_training, parallel, sequential, seed, name, environment_name,
     checkpoint, path
@@ -16,6 +21,14 @@ def train(
 
     # Capture the arguments to save them, e.g. to play with the trained agent.
     args = dict(locals())
+
+    for key in ('wandb_config', 'trainer_config', 'agent_config'):
+        args.pop(key, None)
+    
+    wandb_params = wandb_config['wandb_config']
+    trainer_params = trainer_config['trainer_config']
+    agent_params = agent_config['agent_config']
+
 
     try:
         checkpoint_path = None
@@ -94,7 +107,9 @@ def train(
         # Build the agent.
         if not agent:
             raise ValueError('No agent specified.')
-        agent = eval(agent)
+        agent = DMPO(**agent_params)
+        #agent = eval(agent)
+        
         agent.initialize(
             observation_space=environment.observation_space,
             action_space=environment.action_space, seed=seed)
@@ -119,18 +134,12 @@ def train(
         path = os.path.join(environment_name, name, str(seed))
         tonic.logger.initialize(path, script_path=__file__, config=args)
 
-        wandb.init(
-                project="test dmpo",
-                notes='Test for notes',
-                config=args,
-                name=f"{name}-seed{seed}",  # Add seed to run name
-                group="wandb test experiments" , # Group runs by experiment name
-                mode="online"
-                )
+        wandb.init(**wandb_params)
         
         # Build the trainer.
         trainer = trainer or 'tonic.Trainer()'
         trainer = eval(trainer)
+        trainer = trainer_fun(**trainer_params)
         trainer.initialize(
             agent=agent, environment=environment,
             test_environment=test_environment)
@@ -166,6 +175,7 @@ if __name__ == '__main__':
     parser.add_argument('--environment_name')
     parser.add_argument('--checkpoint', default='last')
     parser.add_argument('--path')
+    parser.add_argument('--trainer_config_path')
 
     args = vars(parser.parse_args())
     train(**args)
