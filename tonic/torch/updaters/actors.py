@@ -4,7 +4,7 @@ from tonic.torch import models, updaters  # noqa
 import tonic.torch.agents.diffusion_utils as du
 from tonic.torch.agents.diffusion_utils.ema_helper.ema import ExponentialMovingAverage as ema
 
-from tonic.torch.agents.diffusion_utils.denoiser_networks import ConditionalMLP
+
 FLOAT_EPSILON = 1e-8
 
 
@@ -495,8 +495,10 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
     def initialize(self, model, action_space):
         self.model = model
         self.denoiser = self.model.actor.head.model
+        self.device = next(self.denoiser.parameters()).device
         self.actor_variables = models.trainable_variables(self.model.actor)
         self.actor_optimizer = self.actor_optimizer(self.actor_variables)
+        
 
         # Dual variables.
         self.dual_variables = []
@@ -536,7 +538,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         def c_noise_fn(sigma):
             return torch.log(sigma)
         
-        def score_matching_loss(action, state, q_weights, sigma_data, training=False):
+        def score_matching_loss(action, state, q_weights, sigma_data):
             p_mean = -1.2
             p_std  =  1.2
 
@@ -558,7 +560,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             c_noise_expanded = c_noise_expanded.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
             state_expanded  = state.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
             inp = torch.cat([noisy_action, c_noise_expanded], dim=-1)
-            out = self.denoiser(inp, state_expanded)
+            out = self.denoiser(inp.to(self.device), state_expanded.to(self.device)).to("cpu")
 
             residual = out - (1.0 / c_out) * (action - c_skip*(action + z))
             unweighted_loss = torch.mean(residual**2, dim=-1)
@@ -600,7 +602,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 self.log_penalty_temperature.data.copy_(torch.maximum(
                     self.min_log_dual, self.log_penalty_temperature))
 
-            actions = self.model.target_actor(observations,self.num_samples)
+            actions = self.model.target_actor(observations,self.num_samples).to("cpu")
 
             
 
@@ -608,7 +610,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             flat_observations = updaters.merge_first_two_dims(
                 tiled_observations)
             flat_actions = updaters.merge_first_two_dims(actions)
-            values = self.model.target_critic(flat_observations, flat_actions)
+            values = self.model.target_critic(flat_observations, flat_actions).to("cpu")
             values = values.view(self.num_samples, -1)
 
 

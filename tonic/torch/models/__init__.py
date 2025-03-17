@@ -23,5 +23,5 @@ __all__ = [
     ObservationEncoder, SquashedMultivariateNormalDiag,
     DetachedScaleGaussianPolicyHead, GaussianPolicyHead,
     DeterministicPolicyHead, Actor, Critic, DistributionalValueHead,
-    ValueHead, ActorCritic, ActorCriticWithTargets, ActorTwinCriticWithTargets,
+    ValueHead, ActorCritic, ActorCriticWithTargets, ActorTwinCriticWithTargets,DiffusionActor,
     DiffusionActorCriticWithTargets,DiffusionPolicyHead]

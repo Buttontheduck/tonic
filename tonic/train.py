@@ -108,7 +108,7 @@ def train(wandb_config,trainer_config,agent_config,
         if not agent:
             raise ValueError('No agent specified.')
         agent = DMPO(**agent_params)
-        #agent = eval(agent)
+        #agent = eval(agent) Removed because of hydra conf
         
         agent.initialize(
             observation_space=environment.observation_space,

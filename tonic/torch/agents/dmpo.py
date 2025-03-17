@@ -17,7 +17,8 @@ def default_model():
         critic=models.Critic(
             encoder=models.ObservationActionEncoder(),
             torso=models.MLP((256, 256), torch.nn.ReLU),
-            head=models.ValueHead()),
+            head=models.ValueHead(),
+            device='cpu'),
         observation_normalizer=normalizers.MeanStd(),
         actor_squash=False,
         action_scale=1)
@@ -46,7 +47,7 @@ class DMPO(agents.Agent):
 
     def step(self, observations, steps):
         actions = self._step(observations)
-        actions = actions.numpy()
+        actions = actions.cpu().numpy()
 
         # Keep some values for the next update.
         self.last_observations = observations.copy()
@@ -56,7 +57,7 @@ class DMPO(agents.Agent):
 
     def test_step(self, observations, steps):
         # Sample actions for testing.
-        return self._test_step(observations).numpy()
+        return self._test_step(observations).cpu().numpy()
 
     def update(self, observations, rewards, resets, terminations, steps):
         # Store the last transitions in the replay.
@@ -96,7 +97,7 @@ class DMPO(agents.Agent):
 
             for key in infos:
                 for k, v in infos[key].items():
-                    logger.store(key + '/' + k, v.numpy())
+                    logger.store(key + '/' + k, v.to('cpu').numpy())
 
         # Update the normalizers.
         if self.model.observation_normalizer:

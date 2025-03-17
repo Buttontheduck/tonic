@@ -339,6 +339,6 @@ class ConditionalMLP(nn.Module):
     def forward(self, x, condition):
         # Concatenate condition directly with input
         # condition should be a scalar between 0 and 1
-        inp = torch.cat([x, condition], dim=-1)
+        inp = torch.cat([x, condition.to(x.device)], dim=-1)
         output = self.network(inp)
         return output

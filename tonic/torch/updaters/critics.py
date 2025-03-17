@@ -314,7 +314,7 @@ class DiffusionExpectedSARSA:
                 next_observations, next_actions)
             next_values = next_values.view(self.num_samples, -1)
             next_values = next_values.mean(dim=0)
-            returns = rewards + discounts * next_values
+            returns = rewards.to(next_values.device) + discounts.to(next_values.device) * next_values
 
 
         self.optimizer.zero_grad()

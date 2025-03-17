@@ -8,13 +8,16 @@ class MLP(torch.nn.Module):
         self.activation = activation
         self.fn = fn
 
-    def initialize(self, input_size):
+        
+
+    def initialize(self, input_size, device):
         sizes = [input_size] + list(self.sizes)
         layers = []
         for i in range(len(sizes) - 1):
             layers += [torch.nn.Linear(sizes[i], sizes[i + 1]),
                        self.activation()]
         self.model = torch.nn.Sequential(*layers)
+        self.model = self.model.to(device)
         if self.fn is not None:
             self.model.apply(self.fn)
         return sizes[-1]

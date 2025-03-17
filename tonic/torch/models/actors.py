@@ -144,7 +144,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         
         
         if self.model_type=='mlp':
-            self.model = ConditionalMLP(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data)
+            self.model = ConditionalMLP(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         elif self.model_type=='resnet':
             self.model= ConditionalResNet1D(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data)
         else:
