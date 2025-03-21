@@ -6,7 +6,7 @@ from tonic.torch.agents.diffusion_utils.diffusion_agents.k_diffusion.score_wrapp
 from tonic.torch.agents.diffusion_utils.scaler import *
 from functools import partial
 import math
-from tonic.torch.agents.diffusion_utils.denoiser_networks import ConditionalMLP, ConditionalResNet1D
+from tonic.torch.agents.diffusion_utils.denoiser_networks import ConditionalMLP, ResidualMLPNetwork
 import scipy
 
 FLOAT_EPSILON = 1e-8
@@ -144,11 +144,11 @@ class DiffusionPolicyHead(torch.nn.Module):
         
         
         if self.model_type=='mlp':
-            self.model = ConditionalMLP(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
-        elif self.model_type=='resnet':
-            self.model= ConditionalResNet1D(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data)
+            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
+        elif self.model_type=='resmlp':
+            self.model= ResidualMLPNetwork(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         else:
-            raise  ValueError("\n Model type should be either 'mlp' or  'resnet' \n")
+            raise  ValueError("\n Model type should be either 'mlp' or  'resmlp' \n")
             
 
     def c_skip_fn(self,sigma, sigma_data):
