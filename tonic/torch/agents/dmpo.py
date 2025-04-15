@@ -4,7 +4,7 @@ from tonic import logger, replays  # noqa
 from tonic.torch import agents, models, normalizers, updaters
 
 from tonic.torch.agents.diffusion_utils.utils import IdentityEncoder, IdentityTorso
-from configs.utils.builder import build_model, build_actor_updater, build_critic_updater
+from configs.utils.builder import build_model, build_actor_updater, build_critic_updater,build_replay_updater
 
 
 
@@ -28,10 +28,10 @@ class DMPO(agents.Agent):
     
 
     def __init__(
-        self, model, replay, actor_updater, critic_updater
+        self, model, replay_updater, actor_updater, critic_updater
     ):
         self.model = build_model(model) or default_model() 
-        self.replay =  replays.Buffer(return_steps=5)
+        self.replay = build_replay_updater(replay_updater)   or  replays.Buffer(return_steps=5)
         self.actor_updater = build_actor_updater(actor_updater) or \
             updaters.DiffusionMaximumAPosterioriPolicyOptimization()
         self.critic_updater = build_critic_updater(critic_updater) or updaters.DiffusionExpectedSARSA()

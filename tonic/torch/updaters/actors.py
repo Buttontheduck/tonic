@@ -602,7 +602,9 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 self.log_penalty_temperature.data.copy_(torch.maximum(
                     self.min_log_dual, self.log_penalty_temperature))
 
-            actions = self.model.target_actor(observations,self.num_samples).to("cpu")
+            unbounded_actions = self.model.target_actor(observations,self.num_samples).to("cpu")
+            actions = torch.tanh(unbounded_actions)
+            
 
             
 
@@ -626,6 +628,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             values, self.epsilon, temperature)
 
         # Action penalization is quadratic beyond [-1, 1].
+        """
         if self.action_penalization:
             penalty_temperature = torch.nn.functional.softplus(
                 self.log_penalty_temperature) + FLOAT_EPSILON
@@ -636,11 +639,12 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                     action_bound_costs,
                     self.epsilon_penalty, penalty_temperature)
             weights += penalty_weights
-            temperature_loss += penalty_temperature_loss
+            temperature_loss += penalty_temperature_loss"
+        """
 
 
 
-        policy_loss = score_matching_loss(actions,observations,weights,1)
+        policy_loss = score_matching_loss(unbounded_actions,observations,weights,1)
         
         
         dual_loss = temperature_loss
@@ -657,9 +661,9 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
         dual_variables = dict(
             temperature=temperature.detach())
-        if self.action_penalization:
-            dual_variables['penalty_temperature'] = \
-                penalty_temperature.detach()
+        #if self.action_penalization:
+            #dual_variables['penalty_temperature'] = \
+            #    penalty_temperature.detach()
 
         return dict(
             policy_loss=policy_loss.detach(),
