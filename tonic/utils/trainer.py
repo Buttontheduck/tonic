@@ -36,7 +36,7 @@ class Trainer:
         num_workers = len(observations)
         scores = np.zeros(num_workers)
         lengths = np.zeros(num_workers, int)
-        self.steps, epoch_steps, epochs, episodes = 9000, 0, 0, 0
+        self.steps, epoch_steps, epochs, episodes = 0, 0, 0, 0
         steps_since_save = 0
 
         while True:

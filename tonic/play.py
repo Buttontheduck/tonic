@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 import yaml
-
+from tonic.torch.agents.dmpo import DMPO 
 import tonic  # noqa
 
 
@@ -143,11 +143,11 @@ def play_control_suite(agent, environment):
     viewer.launch(environment, policy)
 
 
-def play(path, checkpoint, seed, header, agent, environment):
+def play(agent_config,header,environment, seed, checkpoint, path):
     '''Reloads an agent and an environment from a previous experiment.'''
-
+    agent = None
     checkpoint_path = None
-
+    agent_params = agent_config['agent_config']
     if path:
         tonic.logger.log(f'Loading experiment from {path}')
 
@@ -208,7 +208,8 @@ def play(path, checkpoint, seed, header, agent, environment):
     # Build the agent.
     if not agent:
         raise ValueError('No agent specified.')
-    agent = eval(agent)
+    #agent = eval(agent)
+    agent = DMPO(**agent_params)
 
     # Build the environment.
     environment = eval(environment)

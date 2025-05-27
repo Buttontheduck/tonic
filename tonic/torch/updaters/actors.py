@@ -3,7 +3,7 @@ import torch
 from tonic.torch import models, updaters  # noqa
 import tonic.torch.agents.diffusion_utils as du
 from tonic.torch.agents.diffusion_utils.ema_helper.ema import ExponentialMovingAverage as ema
-
+from tonic import logger
 
 FLOAT_EPSILON = 1e-8
 
@@ -466,15 +466,14 @@ class MaximumAPosterioriPolicyOptimization:
             **dual_variables)
 
 
-
 class DiffusionMaximumAPosterioriPolicyOptimization:
     def __init__(
         self, num_samples=20, epsilon=1e-1, epsilon_penalty=1e-3,
         epsilon_mean=1e-3, epsilon_std=1e-6, initial_log_temperature=1.,
         initial_log_alpha_mean=1., initial_log_alpha_std=10.,
         min_log_dual=-18., per_dim_constraining=True, action_penalization=True,
-        actor_optimizer=None, dual_optimizer=None, gradient_clip=0
-    ):
+        actor_optimizer=None, dual_optimizer=None, actor_gradient_clip=0,dual_gradient_clip=0):
+        
         self.num_samples = num_samples
         self.epsilon = epsilon
         self.epsilon_mean = epsilon_mean
@@ -488,9 +487,10 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         self.per_dim_constraining = per_dim_constraining
         self.actor_optimizer = actor_optimizer or (
             lambda params: torch.optim.Adam(params, lr=3e-4))
-        self.dual_optimizer = actor_optimizer or (
+        self.dual_optimizer = dual_optimizer or (
             lambda params: torch.optim.Adam(params, lr=1e-2))
-        self.gradient_clip = gradient_clip
+        self.actor_gradient_clip = actor_gradient_clip
+        self.dual_gradient_clip = dual_gradient_clip
 
     def initialize(self, model, action_space):
         self.model = model
@@ -508,10 +508,10 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         shape = [action_space.shape[0]] if self.per_dim_constraining else [1]
         self.log_alpha_mean = torch.nn.Parameter(torch.full(
             shape, self.initial_log_alpha_mean, dtype=torch.float32))
-        self.dual_variables.append(self.log_alpha_mean)
+        #self.dual_variables.append(self.log_alpha_mean)
         self.log_alpha_std = torch.nn.Parameter(torch.full(
             shape, self.initial_log_alpha_std, dtype=torch.float32))
-        self.dual_variables.append(self.log_alpha_std)
+        #self.dual_variables.append(self.log_alpha_std)
         if self.action_penalization:
             self.log_penalty_temperature = torch.nn.Parameter(torch.as_tensor(
                 [self.initial_log_temperature], dtype=torch.float32))
@@ -520,12 +520,29 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
     def __call__(self, observations):
         
-        def parametric_kl_and_dual_losses(kl, alpha, epsilon):
-            kl_mean = kl.mean(dim=0)
-            kl_loss = (alpha.detach() * kl_mean).sum()
-            alpha_loss = (alpha * (epsilon - kl_mean.detach())).sum()
-            return kl_loss, alpha_loss
+        def compute_nonparametric_kl_from_normalized_weights(
+            normalized_weights: torch.Tensor) -> torch.Tensor:
+            
+            
+            """ E-Step KL """
+            """Estimate the actualized KL between the non-parametric and target policies."""
+            # Compute integrand.
+            num_action_samples = normalized_weights.shape[0] / 1.
+            integrand = torch.log(num_action_samples * normalized_weights + 1e-8)
+            # Return the expectation with respect to the non-parametric policy.
+            kl_sample = torch.sum(normalized_weights * integrand, dim=0)
+            
+            kl_mean = kl_sample.mean()
+            return kl_mean
         
+        def effective_sample_size(weights: torch.Tensor, dim: int = 0) -> torch.Tensor:
+            """
+            Effective sample size along the given dim.
+            Assumes `weights.sum(dim) == 1` (already normalized).
+            Returns a tensor with `weights.shape` minus the chosen dim.
+            """
+            return 1.0 / (weights.pow(2).sum(dim=dim))
+            
         def c_skip_fn(sigma, sigma_data):
             return sigma_data**2 / (sigma**2 + sigma_data**2)
 
@@ -604,7 +621,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
             unbounded_actions = self.model.target_actor(observations,self.num_samples).to("cpu")
             actions = torch.tanh(unbounded_actions)
-            
+            #actions = unbounded_actions
 
             
 
@@ -626,9 +643,15 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             self.log_temperature) + FLOAT_EPSILON
         weights, temperature_loss = weights_and_temperature_loss(
             values, self.epsilon, temperature)
-
+        kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
+        ess = effective_sample_size(weights)
+        logger.store('train/weights', weights, stats=True)
+        logger.store('train/kl_e_step', kl_e_step)
+        logger.store('train/Effective_Sample_Size', ess)
+        
+        
         # Action penalization is quadratic beyond [-1, 1].
-        """
+        
         if self.action_penalization:
             penalty_temperature = torch.nn.functional.softplus(
                 self.log_penalty_temperature) + FLOAT_EPSILON
@@ -639,35 +662,37 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                     action_bound_costs,
                     self.epsilon_penalty, penalty_temperature)
             weights += penalty_weights
-            temperature_loss += penalty_temperature_loss"
-        """
-
-
+            temperature_loss += penalty_temperature_loss
+        
 
         policy_loss = score_matching_loss(unbounded_actions,observations,weights,1)
-        
-        
+           
         dual_loss = temperature_loss
         loss = policy_loss + dual_loss
 
         loss.backward()
-        if self.gradient_clip > 0:
+        for j,m  in enumerate(self.dual_variables):
+            logger.store(f'gradient/dual_grad_{j}', m.grad.data.cpu().numpy(), stats=True)
+            logger.store(f'gradient/dual_grad_norm_{j}', m.grad.data.norm().cpu().numpy())           
+            
+        if self.actor_gradient_clip > 0:
             torch.nn.utils.clip_grad_norm_(
-                self.actor_variables, self.gradient_clip)
+                self.actor_variables, self.actor_gradient_clip)
+        if self.dual_gradient_clip>0:
             torch.nn.utils.clip_grad_norm_(
-                self.dual_variables, self.gradient_clip)
+                self.dual_variables, self.dual_gradient_clip)
+            
         self.actor_optimizer.step()
         self.dual_optimizer.step()
 
         dual_variables = dict(
             temperature=temperature.detach())
-        #if self.action_penalization:
-            #dual_variables['penalty_temperature'] = \
-            #    penalty_temperature.detach()
+        if self.action_penalization:
+            dual_variables['penalty_temperature'] = \
+                penalty_temperature.detach()
 
         return dict(
             policy_loss=policy_loss.detach(),
             temperature_loss=temperature_loss.detach(),
             **dual_variables)
-        
-        
+            
