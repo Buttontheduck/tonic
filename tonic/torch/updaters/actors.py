@@ -643,11 +643,12 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             self.log_temperature) + FLOAT_EPSILON
         weights, temperature_loss = weights_and_temperature_loss(
             values, self.epsilon, temperature)
+
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
-        logger.store('train/weights', weights, stats=True)
-        logger.store('train/kl_e_step', kl_e_step)
-        logger.store('train/Effective_Sample_Size', ess)
+        logger.store('E_inference/weights', weights, stats=True)
+        logger.store('E_inference/kl_e_step', kl_e_step)
+        logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
         
         
         # Action penalization is quadratic beyond [-1, 1].
@@ -671,10 +672,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         loss = policy_loss + dual_loss
 
         loss.backward()
-        for j,m  in enumerate(self.dual_variables):
-            logger.store(f'gradient/dual_grad_{j}', m.grad.data.cpu().numpy(), stats=True)
-            logger.store(f'gradient/dual_grad_norm_{j}', m.grad.data.norm().cpu().numpy())           
-            
+
         if self.actor_gradient_clip > 0:
             torch.nn.utils.clip_grad_norm_(
                 self.actor_variables, self.actor_gradient_clip)
