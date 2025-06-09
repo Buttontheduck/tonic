@@ -1,7 +1,7 @@
 import datetime
 import os
 import time
-
+import torch
 import numpy as np
 import termcolor
 import yaml
@@ -43,18 +43,25 @@ class Logger:
 
         self.known_keys = set()
         self.stat_keys = set()
+        self.w_keys = set()
         self.epoch_dict = {}
         self.width = width
         self.last_epoch_progress = None
         self.start_time = time.time()
 
-    def store(self, key, value, stats=False):
+    def store(self, key, value, stats=False, log_weights=False):
         '''Keeps named values during an epoch.'''
 
         if key not in self.epoch_dict:
             self.epoch_dict[key] = [value]
+            
+            if log_weights:
+                self.w_keys.add(key)       
+                stats = False    
+                
             if stats:
                 self.stat_keys.add(key)
+
         else:
             self.epoch_dict[key].append(value)
 
@@ -66,6 +73,7 @@ class Logger:
         for key in keys:
             print(key)
             values = self.epoch_dict[key]
+            
             if key in self.stat_keys:
                 self.epoch_dict[key + '/mean'] = np.mean(values)
                 self.epoch_dict[key + '/std'] = np.std(values)
@@ -73,6 +81,56 @@ class Logger:
                 self.epoch_dict[key + '/max'] = np.max(values)
                 self.epoch_dict[key + '/size'] = len(values)
                 del self.epoch_dict[key]
+                
+            if key in self.w_keys:
+                """
+                For weight values, tensor have the size [TS,S,BS] 
+                - TS: # of timesteps of interaction with the environment, in our case 1000
+                - S:  # of actions sampled given the state, in our case 20
+                - BS: # of states in a batch, batch size, in our case 256
+                
+                + so we end up val tensor, torch.Size([1000, 20, 256])
+                """
+
+                val = torch.stack(values)
+                
+                val_100 = val[100]
+                val_199 = val[199]
+                val_500 = val[500]
+                val_599 = val[599]     
+                val_900 = val[900]
+                val_999 = val[999]    
+                
+                wandb.log({key+'/Weights Per Time/ T=100': wandb.Histogram(val_100.numpy())})
+                wandb.log({key+'/Weights Per Time/ T=199': wandb.Histogram(val_199.numpy())})                
+                wandb.log({key+'/Weights Per Time/ T=500': wandb.Histogram(val_500.numpy())})
+                wandb.log({key+'/Weights Per Time/ T=599': wandb.Histogram(val_599.numpy())})                
+                wandb.log({key+'/Weights Per Time/ T=900': wandb.Histogram(val_900.numpy())})
+                wandb.log({key+'/Weights Per Time/ T=999': wandb.Histogram(val_999.numpy())})                
+                                                                                       
+                                        
+                max_mean_vals = torch.mean(val.amax(dim=(1)))
+                min_mean_vals = torch.mean(val.amin(dim=(1)))
+                max_max_vals = val.amax(dim=(1, 2))  # for each timestep TS, max weight (W) of each (s,a) weights. [1000]
+                min_min_vals = val.amin(dim=(1, 2))  # for each timestep TS, min weight (W) of each (s,a) weights. [1000]
+
+                mean = torch.mean(val)
+                max2_mean = torch.mean(max_max_vals)                      
+                min2_mean = torch.mean(min_min_vals)   
+
+                self.epoch_dict[key+'/Mean/max_max_mean']  = max2_mean.numpy()
+                self.epoch_dict[key+'/Mean/min_min_mean']  = min2_mean.numpy()
+                self.epoch_dict[key+'/Mean/max_mean_mean'] = max_mean_vals.numpy()
+                self.epoch_dict[key+'/Mean/min_mean_mean'] = min_mean_vals.numpy()
+                
+                self.epoch_dict[key+'/Dist/max_max_dist'] = max_max_vals.numpy()
+                self.epoch_dict[key+'/Dist/min_min_dist'] = min_min_vals.numpy()
+                
+                
+                self.epoch_dict[key+'/mean'] = mean.numpy()
+                
+                
+
             else:
                 self.epoch_dict[key] = np.mean(values)
 

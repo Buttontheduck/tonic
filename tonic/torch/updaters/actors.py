@@ -646,10 +646,11 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
-        logger.store('E_inference/weights', weights, stats=True)
-        logger.store('E_inference/kl_e_step', kl_e_step)
-        logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
         
+        logger.store('E_inference/Weights', weights, log_weights=True)       
+        logger.store('E_inference/kl_e_step', kl_e_step, stats=True)
+        logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
+
         
         # Action penalization is quadratic beyond [-1, 1].
         
