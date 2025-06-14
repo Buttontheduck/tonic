@@ -93,22 +93,7 @@ class Logger:
                 """
 
                 val = torch.stack(values)
-                
-                val_100 = val[100]
-                val_199 = val[199]
-                val_500 = val[500]
-                val_599 = val[599]     
-                val_900 = val[900]
-                val_999 = val[999]    
-                
-                wandb.log({key+'/Weights Per Time/ T=100': wandb.Histogram(val_100.numpy())})
-                wandb.log({key+'/Weights Per Time/ T=199': wandb.Histogram(val_199.numpy())})                
-                wandb.log({key+'/Weights Per Time/ T=500': wandb.Histogram(val_500.numpy())})
-                wandb.log({key+'/Weights Per Time/ T=599': wandb.Histogram(val_599.numpy())})                
-                wandb.log({key+'/Weights Per Time/ T=900': wandb.Histogram(val_900.numpy())})
-                wandb.log({key+'/Weights Per Time/ T=999': wandb.Histogram(val_999.numpy())})                
-                                                                                       
-                                        
+
                 max_mean_vals = torch.mean(val.amax(dim=(1)))
                 min_mean_vals = torch.mean(val.amin(dim=(1)))
                 max_max_vals = val.amax(dim=(1, 2))  # for each timestep TS, max weight (W) of each (s,a) weights. [1000]
@@ -122,10 +107,7 @@ class Logger:
                 self.epoch_dict[key+'/Mean/min_min_mean']  = min2_mean.numpy()
                 self.epoch_dict[key+'/Mean/max_mean_mean'] = max_mean_vals.numpy()
                 self.epoch_dict[key+'/Mean/min_mean_mean'] = min_mean_vals.numpy()
-                
-                self.epoch_dict[key+'/Dist/max_max_dist'] = max_max_vals.numpy()
-                self.epoch_dict[key+'/Dist/min_min_dist'] = min_min_vals.numpy()
-                
+        
                 
                 self.epoch_dict[key+'/mean'] = mean.numpy()
                 
