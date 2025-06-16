@@ -13,7 +13,7 @@ class Trainer:
 
     def __init__(
         self, steps=int(11000), epoch_steps=int(1000), save_steps=int(5e5),
-        test_episodes=4, show_progress=True, replace_checkpoint=False, test_freq=10
+        test_episodes=4, show_progress=True, replace_checkpoint=False, test_freq=int(10)
     ):
         self.max_steps = steps
         self.epoch_steps = epoch_steps
