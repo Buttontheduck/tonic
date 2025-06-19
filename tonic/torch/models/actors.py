@@ -144,9 +144,9 @@ class DiffusionPolicyHead(torch.nn.Module):
         
         
         if self.model_type=='mlp':
-            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
+            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden).to(self.device)
         elif self.model_type=='resmlp':
-            self.model= ResidualMLPNetwork(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
+            self.model= ResidualMLPNetwork(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden).to(self.device)
         else:
             raise  ValueError("\n Model type should be either 'mlp' or  'resmlp' \n")
             
@@ -164,14 +164,12 @@ class DiffusionPolicyHead(torch.nn.Module):
         return torch.log(sigma)
 
 
-
-
     def denoiser_fn(self, x, sigma, condition):
-        x_scaled = self.c_in_fn(sigma, self.model.sigma_data) * x
+        x_scaled = self.c_in_fn(sigma, self.sigma_data) * x
         c_noise_expanded = self.c_noise_fn(sigma).expand(-1, 1)
         inp = torch.cat([x_scaled, c_noise_expanded], dim=-1)
         out = self.model(inp, condition)
-        return self.c_skip_fn(sigma, self.model.sigma_data) * x + self.c_out_fn(sigma, self.model.sigma_data) * out
+        return self.c_skip_fn(sigma, self.sigma_data) * x + self.c_out_fn(sigma, self.sigma_data) * out
 
     def velocity(self, x, t, condition):
         d = self.denoiser_fn( x, t, condition)
@@ -320,6 +318,9 @@ class DiffusionPolicyHead(torch.nn.Module):
                 action = self.sample_ode(state, num_sample=num_sample)
 
         return action
+    
+    def update_sigma_data(self,new_sigma):
+        self.sigma_data = new_sigma
 
 
 

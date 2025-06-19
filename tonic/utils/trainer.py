@@ -5,7 +5,7 @@ import numpy as np
 import random
 import numpy as np
 import torch
-from tonic import logger
+from tonic import logger,replays
 
 
 class Trainer:
@@ -51,6 +51,8 @@ class Trainer:
 
             # Take a step in the environments.
             observations, infos = self.environment.step(actions)
+            
+
             self.agent.update(**infos, steps=self.steps)
 
             scores += infos['rewards']
@@ -76,7 +78,7 @@ class Trainer:
                     episodes += 1
                     if self.test_environment and episodes % self.test_freq == 0:
                         self._test()
-
+            
             # End of the epoch.
             if epoch_steps >= self.epoch_steps:
                 # Log the data.
@@ -95,6 +97,7 @@ class Trainer:
                 logger.dump()
                 last_epoch_time = time.time()
                 epoch_steps = 0
+                
 
             # End of training.
             #print(f"steps = {self.steps}")

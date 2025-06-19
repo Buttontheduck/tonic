@@ -76,6 +76,7 @@ class DMPO(agents.Agent):
         if self.replay.ready(steps):
             self._update(steps)
 
+
     def _step(self, observations):
         observations = torch.as_tensor(observations, dtype=torch.float32)
         with torch.no_grad():
@@ -98,12 +99,16 @@ class DMPO(agents.Agent):
             for key in infos:
                 for k, v in infos[key].items():
                     logger.store(key + '/' + k, v.to('cpu').numpy())
+                    
+        if steps == self.replay.steps_before_batches:
+            self.update_sigma(steps)
 
         # Update the normalizers.
         if self.model.observation_normalizer:
             self.model.observation_normalizer.update()
         if self.model.return_normalizer:
             self.model.return_normalizer.update()
+        
             
 
 
@@ -112,6 +117,16 @@ class DMPO(agents.Agent):
     ):
         critic_infos = self.critic_updater(
             observations, actions, next_observations, rewards, discounts)
-        actor_infos = self.actor_updater(observations) 
+        actor_infos = self.actor_updater(observations,self.replay.get_sigma()) 
         self.model.update_targets()
         return dict(critic=critic_infos, actor=actor_infos)
+    
+    
+    def update_sigma(self,steps):
+
+        self.replay.update_sigma(steps)
+        new_sigma= self.replay.get_sigma()
+        self.model.actor.head.update_sigma_data(new_sigma)
+     
+
+

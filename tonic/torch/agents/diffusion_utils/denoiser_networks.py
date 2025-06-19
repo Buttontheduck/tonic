@@ -192,7 +192,6 @@ class ResidualMLPNetwork(nn.Module):
         out_dim: int = 2,
         hidden_dim: int = 256,
         n_hidden: int = 6,  # Changed default to 2 to satisfy the assertion
-        sigma_data: float = 1.0,
         dropout: float = 0.0,  # Fixed type to float
         activation: str = "Mish",
         use_spectral_norm: bool = False,
@@ -204,7 +203,6 @@ class ResidualMLPNetwork(nn.Module):
         super(ResidualMLPNetwork, self).__init__()
         self.network_type = "mlp"
         self._device = device
-        self.sigma_data = sigma_data
         
         # Ensure the number of hidden layers is even for residual blocks
         assert n_hidden % 2 == 0, "n_hidden must be even"
@@ -262,12 +260,9 @@ class ResidualMLPNetwork(nn.Module):
     
 # Modified to include simple scalar condition (0-1)
 class ConditionalMLP(nn.Module):
-    def __init__(self,in_dim=4, out_dim=2, hidden_dim=256, n_hidden=4, sigma_data=1.0):
+    def __init__(self,in_dim=4, out_dim=2, hidden_dim=256, n_hidden=4):
         super().__init__()
 
-        self.sigma_data = sigma_data
-
-    
         # Main network with additional input for condition
         layers = []
         # 4 = 2 (data dimension) + 1 (noise level) + 1 (condition)
@@ -287,9 +282,7 @@ class ConditionalMLP(nn.Module):
         nn.init.zeros_(last_linear.weight)
         nn.init.zeros_(last_linear.bias)
         layers.append(last_linear)
-        
-
-
+    
         self.network = nn.Sequential(*layers)
 
     def forward(self, x, condition):
@@ -298,8 +291,8 @@ class ConditionalMLP(nn.Module):
         inp = torch.cat([x, condition.to(x.device)], dim=-1)
         output = self.network(inp)
         return output
-    
 
+        
 class EtaMLP(nn.Module):
     def __init__(self,in_dim, out_dim, hidden_dim=256, n_hidden=2):
         super().__init__()

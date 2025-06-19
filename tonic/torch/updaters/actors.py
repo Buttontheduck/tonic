@@ -4,6 +4,7 @@ from tonic.torch import models, updaters  # noqa
 import tonic.torch.agents.diffusion_utils as du
 from tonic.torch.agents.diffusion_utils.ema_helper.ema import ExponentialMovingAverage as ema
 from tonic import logger
+from tonic.replays import Buffer 
 
 FLOAT_EPSILON = 1e-8
 
@@ -518,7 +519,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             self.dual_variables.append(self.log_penalty_temperature)
         self.dual_optimizer = self.dual_optimizer(self.dual_variables)
 
-    def __call__(self, observations):
+    def __call__(self, observations, sigma_data):
         
         def compute_nonparametric_kl_from_normalized_weights(
             normalized_weights: torch.Tensor) -> torch.Tensor:
@@ -667,7 +668,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             temperature_loss += penalty_temperature_loss
         
 
-        policy_loss = score_matching_loss(unbounded_actions,observations,weights,1)
+        policy_loss = score_matching_loss(unbounded_actions,observations,weights,sigma_data)
            
         dual_loss = temperature_loss
         loss = policy_loss + dual_loss

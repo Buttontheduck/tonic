@@ -8,7 +8,7 @@ class Buffer:
     def __init__(
         self, size=int(1e6), return_steps=1, batch_iterations=50,
         batch_size=100, discount_factor=0.99, steps_before_batches=int(1e4),
-        steps_between_batches=50
+        steps_between_batches=50, sigma_data = 1.0
     ):
         self.full_max_size = size
         self.return_steps = return_steps
@@ -17,6 +17,7 @@ class Buffer:
         self.discount_factor = discount_factor
         self.steps_before_batches = steps_before_batches
         self.steps_between_batches = steps_between_batches
+        self.sigma_data = sigma_data
 
     def initialize(self, seed=None):
         self.np_random = np.random.RandomState(seed)
@@ -89,3 +90,20 @@ class Buffer:
             yield {k: self.buffers[k][rows, columns] for k in keys}
 
         self.last_steps = steps
+        
+    def _compute_sigma(self):
+        a = self.buffers['actions'][:self.size]
+        return np.std(a).item()
+    
+    def update_sigma(self,steps):
+        if steps == self.steps_before_batches:
+            buffer_sigma = self._compute_sigma()
+            self.sigma_data =buffer_sigma
+            
+    def get_sigma(self):
+        return  self.sigma_data      
+
+
+    
+    
+
