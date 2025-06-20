@@ -124,7 +124,8 @@ class DeterministicPolicyHead(torch.nn.Module):
 
 
 class DiffusionPolicyHead(torch.nn.Module):
-    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp'):
+    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp', \
+        sigma_max=80, sigma_min=0.001 ):
         
         self.device = device
         self.hidden_dim = hidden_dim
