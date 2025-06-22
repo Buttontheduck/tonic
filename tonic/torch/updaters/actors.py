@@ -639,7 +639,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             out = self.denoiser(inp.to(self.device), state_expanded.to(self.device))
 
             residual = out - (1.0 / c_out) * (action - c_skip*(action + noise))
-            unweighted_loss = torch.mean(residual**2, dim=-1)1
+            unweighted_loss = torch.mean(residual**2, dim=-1)
             loss_tensor = unweighted_loss*q_weights
             loss = loss_tensor.sum(dim=0)
             return loss.mean()
