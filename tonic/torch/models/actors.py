@@ -140,7 +140,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         super(DiffusionPolicyHead, self).__init__()
         self.state_dim = state_size
         self.action_dim = action_size
-        input_dim = self.state_dim + self.action_dim +1
+        input_dim = self.state_dim + self.action_dim + 256
         
         
         if self.model_type=='mlp':
@@ -169,8 +169,7 @@ class DiffusionPolicyHead(torch.nn.Module):
     def denoiser_fn(self, x, sigma, condition):
         x_scaled = self.c_in_fn(sigma, self.model.sigma_data) * x
         c_noise_expanded = self.c_noise_fn(sigma).expand(-1, 1)
-        inp = torch.cat([x_scaled, c_noise_expanded], dim=-1)
-        out = self.model(inp, condition)
+        out = self.model(x_scaled,c_noise_expanded, condition)
         return self.c_skip_fn(sigma, self.model.sigma_data) * x + self.c_out_fn(sigma, self.model.sigma_data) * out
 
     def velocity(self, x, t, condition):

@@ -7,7 +7,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
-
+import math
 
 class MLPNetwork(nn.Module):
     """
@@ -291,11 +291,22 @@ class ConditionalMLP(nn.Module):
 
 
         self.network = nn.Sequential(*layers)
+        
+        self.sigma_embed = nn.Sequential(
+            SinusoidalPosEmb(hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim * 2),
+            nn.Mish(),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+        )
 
-    def forward(self, x, condition):
+    def forward(self, x, sigma, states):
         # Concatenate condition directly with input
         # condition should be a scalar between 0 and 1
-        inp = torch.cat([x, condition.to(x.device)], dim=-1)
+        sigma_emb = self.sigma_embed(sigma) 
+        sigma_emb = sigma_emb.squeeze(1)
+        
+        inp = torch.cat([x, sigma_emb.to(x.device), states.to(x.device)], dim=-1)
+    
         output = self.network(inp)
         return output
     
@@ -334,3 +345,19 @@ class EtaMLP(nn.Module):
 
         return η
         
+        
+        
+
+class SinusoidalPosEmb(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x):
+        device = x.device
+        half_dim = self.dim // 2
+        emb = math.log(10000) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
+        emb = x[:, None] * emb[None, :]
+        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
+        return emb
