@@ -356,7 +356,7 @@ class DiffusionActor(torch.nn.Module):
         self, observation_space, action_space, observation_normalizer=None,actor_squash =False,actor_scale=1,
     ):
         size = self.encoder.initialize(
-            observation_space)
+            observation_space,action_space,observation_normalizer)
         size = self.torso.initialize(size)
         action_size = action_space.shape[0]
         self.head.initialize(size, action_size)
@@ -364,15 +364,14 @@ class DiffusionActor(torch.nn.Module):
         self.actor_scale  = actor_scale
     def forward(self, *inputs):
         samples =None        
-        out = self.encoder(*inputs)
-        out = self.torso(out)
-        if len(out) > 1 and isinstance(out, tuple):
-            out,samples = out
+        if len(inputs) > 1 and isinstance(inputs, tuple):
+            out,samples = inputs
+            out = self.encoder(out)
+        else:
+            out = self.encoder(*inputs)
             
+        out = self.torso(out) 
         pred = self.head(out,samples)
-        
-        if self.actor_squash:
-            pred = torch.tanh(pred) * self.actor_scale
             
         return pred
 

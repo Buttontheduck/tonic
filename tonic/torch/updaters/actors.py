@@ -620,8 +620,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                     self.min_log_dual, self.log_penalty_temperature))
 
             unbounded_actions = self.model.target_actor(observations,self.num_samples).to("cpu")
-            actions = torch.tanh(unbounded_actions)
-            #actions = unbounded_actions
+            #actions = torch.tanh(unbounded_actions)
+            actions = unbounded_actions
 
             
 

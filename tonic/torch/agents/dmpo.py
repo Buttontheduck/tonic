@@ -11,7 +11,7 @@ from configs.utils.builder import build_model, build_actor_updater, build_critic
 def default_model():
     return models.DiffusionActorCriticWithTargets(
         actor=models.DiffusionActor(
-            encoder=IdentityEncoder(),
+            encoder=models.ObservationEncoder(),
             torso=IdentityTorso(),
             head=models.DiffusionPolicyHead(device='cpu',num_diffusion_steps=50, hidden_dim=100,n_hidden=2,sampler_type='ddim',model_type='mlp',sigma_data=1)),
         critic=models.Critic(
