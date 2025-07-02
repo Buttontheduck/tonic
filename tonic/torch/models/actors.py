@@ -356,7 +356,7 @@ class DiffusionActor(torch.nn.Module):
         self, observation_space, action_space, observation_normalizer=None,actor_squash =False,actor_scale=1,
     ):
         size = self.encoder.initialize(
-            observation_space,action_space,observation_normalizer)
+            observation_space,observation_normalizer=observation_normalizer)
         size = self.torso.initialize(size)
         action_size = action_space.shape[0]
         self.head.initialize(size, action_size)
