@@ -124,10 +124,12 @@ class DeterministicPolicyHead(torch.nn.Module):
 
 
 class DiffusionPolicyHead(torch.nn.Module):
-    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp'):
+    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,embed_dim=32,embed_type ='fourier',n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp'):
         
         self.device = device
         self.hidden_dim = hidden_dim
+        self.embed_dim = embed_dim
+        self.embed_type = embed_type
         self.n_hidden=n_hidden
         self.sigma_data=sigma_data
         self.sampler_type=sampler_type
@@ -140,11 +142,11 @@ class DiffusionPolicyHead(torch.nn.Module):
         super(DiffusionPolicyHead, self).__init__()
         self.state_dim = state_size
         self.action_dim = action_size
-        input_dim = self.state_dim + self.action_dim + 256
+        input_dim = self.state_dim + self.action_dim + self.embed_dim
         
         
         if self.model_type=='mlp':
-            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
+            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,embed_dim=self.embed_dim,embed_type=self.embed_type,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         elif self.model_type=='resmlp':
             self.model= ResidualMLPNetwork(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         else:
@@ -161,10 +163,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
     def c_noise_fn(self,sigma):
-        return torch.log(sigma)
-
-
-
+        return torch.log(sigma)*1
 
     def denoiser_fn(self, x, sigma, condition):
         x_scaled = self.c_in_fn(sigma, self.model.sigma_data) * x

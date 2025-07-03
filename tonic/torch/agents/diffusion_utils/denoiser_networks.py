@@ -3,11 +3,13 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingLR
-
+from tonic.torch.agents.diffusion_utils.sigma_embeddings import SinusoidalProjection, FourierFeaturesEmbedding
 import numpy as np
 import scipy
 import matplotlib.pyplot as plt
 import math
+import einops
+
 
 class MLPNetwork(nn.Module):
     """
@@ -262,7 +264,7 @@ class ResidualMLPNetwork(nn.Module):
     
 # Modified to include simple scalar condition (0-1)
 class ConditionalMLP(nn.Module):
-    def __init__(self,in_dim=4, out_dim=2, hidden_dim=256, n_hidden=4, sigma_data=1.0):
+    def __init__(self,in_dim=4, out_dim=2, hidden_dim=256, embed_dim=32, embed_type='Sinusoidal', n_hidden=4, sigma_data=1.0):
         super().__init__()
 
         self.sigma_data = sigma_data
@@ -292,12 +294,24 @@ class ConditionalMLP(nn.Module):
 
         self.network = nn.Sequential(*layers)
         
-        self.sigma_embed = nn.Sequential(
-            SinusoidalPosEmb(hidden_dim),
-            nn.Linear(hidden_dim, hidden_dim * 2),
-            nn.Mish(),
-            nn.Linear(hidden_dim * 2, hidden_dim),
-        )
+        
+        if embed_type == 'sinusoidal':
+            self.sigma_embed = nn.Sequential(
+                SinusoidalProjection(embed_dim),
+                nn.Linear(embed_dim, embed_dim * 2),
+                nn.Mish(),
+                nn.Linear(embed_dim * 2, embed_dim),
+                )
+        elif embed_type == 'fourier':
+            self.sigma_embed = nn.Sequential(
+                FourierFeaturesEmbedding(embed_dim),
+                nn.Linear(embed_dim, embed_dim * 2),
+                nn.Mish(),
+                nn.Linear(embed_dim * 2, embed_dim),
+                )
+        else:
+            ValueError("\n Sigma Embeddings are not assigned correctly withing ConditionalMLP \n")
+            
 
     def forward(self, x, sigma, states):
         # Concatenate condition directly with input
@@ -346,18 +360,3 @@ class EtaMLP(nn.Module):
         return η
         
         
-        
-
-class SinusoidalPosEmb(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x):
-        device = x.device
-        half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x[:, None] * emb[None, :]
-        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
-        return emb

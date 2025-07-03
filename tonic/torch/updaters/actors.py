@@ -553,7 +553,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
         def c_noise_fn(sigma):
-            return torch.log(sigma)
+            return torch.log(sigma)*1
         
         def score_matching_loss(action, state, q_weights, sigma_data):
             p_mean = -1.2

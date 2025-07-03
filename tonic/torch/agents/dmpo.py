@@ -4,7 +4,7 @@ from tonic import logger, replays  # noqa
 from tonic.torch import agents, models, normalizers, updaters
 
 from tonic.torch.agents.diffusion_utils.utils import IdentityEncoder, IdentityTorso
-from configs.utils.builder import build_model, build_actor_updater, build_critic_updater,build_replay_updater
+from configs.utils.builder_sigma import build_model, build_actor_updater, build_critic_updater,build_replay_updater
 
 
 
