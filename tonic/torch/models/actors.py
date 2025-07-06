@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tonic.torch.agents.diffusion_utils.diffusion_agents.k_diffusion.gc_sampling import *
 from tonic.torch.agents.diffusion_utils.diffusion_agents.k_diffusion.score_wrappers import GCDenoiser  as trainer
-from tonic.torch.agents.diffusion_utils.scaler import *
 from functools import partial
 import math
 from tonic.torch.agents.diffusion_utils.denoiser_networks import ConditionalMLP, ResidualMLPNetwork
@@ -124,28 +123,36 @@ class DeterministicPolicyHead(torch.nn.Module):
 
 
 class DiffusionPolicyHead(torch.nn.Module):
-    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp', \
-        sigma_max=80, sigma_min=0.001 ):
+    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,embed_dim=32,embed_type ='fourier',n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp', \
+        sigma_max=80, sigma_min=0.001, rho=7, noise_type = 'karras' ):
         
         self.device = device
         self.hidden_dim = hidden_dim
+        self.embed_dim = embed_dim
+        self.embed_type = embed_type
         self.n_hidden=n_hidden
         self.sigma_data=sigma_data
         self.sampler_type=sampler_type
         self.n_blocks = n_blocks
         self.n_diffusion_steps = num_diffusion_steps
         self.model_type = model_type
+        self.sigma_max = sigma_max
+        self.sigma_min = sigma_min
+        self.rho = 7
+        self.noise_type = noise_type
+        
+        
 
 
     def initialize(self, state_size, action_size):
         super(DiffusionPolicyHead, self).__init__()
         self.state_dim = state_size
         self.action_dim = action_size
-        input_dim = self.state_dim + self.action_dim +1
+        input_dim = self.state_dim + self.action_dim + self.embed_dim
         
         
         if self.model_type=='mlp':
-            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
+            self.model = ConditionalMLP(in_dim=input_dim, out_dim=self.action_dim,hidden_dim=self.hidden_dim,embed_dim=self.embed_dim,embed_type=self.embed_type,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         elif self.model_type=='resmlp':
             self.model= ResidualMLPNetwork(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         else:
@@ -162,55 +169,78 @@ class DiffusionPolicyHead(torch.nn.Module):
         return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
     def c_noise_fn(self,sigma):
-        return torch.log(sigma)
-
-
-
+        return torch.log(sigma)*0.25
 
     def denoiser_fn(self, x, sigma, condition):
-        x_scaled = self.c_in_fn(sigma, self.model.sigma_data) * x
-        c_noise_expanded = self.c_noise_fn(sigma).expand(-1, 1)
-        inp = torch.cat([x_scaled, c_noise_expanded], dim=-1)
-        out = self.model(inp, condition)
-        return self.c_skip_fn(sigma, self.model.sigma_data) * x + self.c_out_fn(sigma, self.model.sigma_data) * out
-
-    def velocity(self, x, t, condition):
-        d = self.denoiser_fn( x, t, condition)
-        return (x - d) / t
-
-    # Modified ODE-based sampling method with condition
-    def sample_ode(self, state,  atol=1e-5, rtol=1e-5):
-        max_t = 80.0
-        min_t = 1e-4
-
-
+            x_scaled = self.c_in_fn(sigma, self.model.sigma_data) * x
+            c_noise_expanded = self.c_noise_fn(sigma).expand(-1, 1)
+            out = self.model(x_scaled,c_noise_expanded, condition)
+            return self.c_skip_fn(sigma, self.model.sigma_data) * x + self.c_out_fn(sigma, self.model.sigma_data) * out
+  
+    def inference(self,state):
+        
         batch_size = state.shape[0]
-        z = max_t * torch.randn(batch_size, 2, device=self.device)
-        shape = z.shape
+        
+        sigmas = self.get_noise_schedule(self.n_diffusion_steps,self.noise_type).to(self.device)
+        
+        noise_action = sigmas[0] * torch.randn(batch_size, self.action_dim, device=self.device)
+        
+        action = self.sample_ddim(state,noise_action,sigmas)
 
-        def velocity_wrapper(x_arr, time_steps):
-            x_torch = torch.from_numpy(x_arr.astype(np.float32)).reshape(shape).to(self.device)
-            ts_torch = torch.from_numpy(time_steps.astype(np.float32)).unsqueeze(-1).to(self.device)
-            with torch.no_grad():
-                v = self.velocity(self.model, x_torch, ts_torch, state)
-            return v.view(-1).cpu().numpy().astype(np.float32)
-
-        def ode_func(t_, x_arr):
-            time_steps = np.ones((shape[0],), dtype=np.float32) * t_
-            return velocity_wrapper(x_arr, time_steps)
-
-        z_numpy = z.detach().cpu().numpy().reshape(-1).astype(np.float32)
-        res = scipy.integrate.solve_ivp(
-            ode_func, (max_t, min_t), z_numpy,
-            rtol=rtol, atol=atol, method='RK45'
-        )
-        print(f"Number of function evaluations: {res.nfev}")
-        final_result = res.y[:, -1].astype(np.float32)
-        action_final = torch.from_numpy(final_result).to(self.device).reshape(shape)
-        return action_final
-
+        return action
+        
     
-    def sample_ddim(self, state, eta=0, num_sample=None):
+    @torch.no_grad()
+    def sample_ddim(
+        self,
+        state, 
+        action, 
+        sigmas, 
+    ):
+        """
+        DPM-Solver 1( or DDIM sampler"""
+
+        s_in = action.new_ones([action.shape[0]])
+        sigma_fn = lambda t: t.neg().exp()
+        t_fn = lambda sigma: sigma.log().neg()
+        
+  
+
+        
+        for i in trange(len(sigmas) - 1, disable=True):
+            # predict the next action
+            sigma_batch = (sigmas[i] * s_in).unsqueeze(1) 
+            denoised = self.denoiser_fn(action, sigma_batch, state)
+            t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
+            h = t_next - t
+            action = (sigma_fn(t_next) / sigma_fn(t)) * action - (-h).expm1() * denoised
+            
+        return action
+
+
+            
+        
+    def get_noise_schedule(self,n_sampling_steps, noise_schedule_type):
+        """
+        Get the noise schedule for the sampling steps
+        """
+        if noise_schedule_type == 'karras':
+            return get_sigmas_karras(n_sampling_steps, self.sigma_min, self.sigma_max, self.rho, self.device)
+        elif noise_schedule_type == 'exponential':
+            return get_sigmas_exponential(n_sampling_steps, self.sigma_min, self.sigma_max, self.device)
+        elif noise_schedule_type == 'vp':
+            return get_sigmas_vp(n_sampling_steps, device=self.device)
+        elif noise_schedule_type == 'linear':
+            return get_sigmas_linear(n_sampling_steps, self.sigma_min, self.sigma_max, device=self.device)
+        elif noise_schedule_type == 'cosine_beta':
+            return cosine_beta_schedule(n_sampling_steps, device=self.device)
+        elif noise_schedule_type == 've':
+            return get_sigmas_ve(n_sampling_steps, self.sigma_min, self.sigma_max, device=self.device)
+        elif noise_schedule_type == 'iddpm':
+            return get_iddpm_sigmas(n_sampling_steps, self.sigma_min, self.sigma_max, device=self.device)
+        raise ValueError('Unknown noise schedule type')
+
+    def old_sample_ddim(self, state, eta=0, num_sample=None):
         """
         DDIM sampling that generates either a single sample or multiple samples per state.
 
@@ -294,34 +324,25 @@ class DiffusionPolicyHead(torch.nn.Module):
                     x = x0_pred + dir_x0 * sigma_next
 
         return x
-    
 
-    def forward(self, state, num_sample=None):
-        """
-        Forward pass to generate action samples given states.
-        Args:
-            state: Tensor of shape [batch_size, state_dim]
-            num_sample: Optional int, number of action samples to generate per state
+   
+    def forward(self, state, num_sample : int = 1):
 
-        Returns:
-            If num_sample is None: Tensor of shape [batch_size, action_dim]
-            If num_sample is given: Tensor of shape [num_sample, batch_size, action_dim]
-        """
-        if num_sample is None:
-            # Single sample case
-            if self.sampler_type == 'ddim':
-                action = self.sample_ddim(state)
-            elif self.sampler_type == 'ode':
-                action = self.sample_ode(state)
+        if num_sample>1:
+            state_rep = state.unsqueeze(1).expand(-1, num_sample, -1).reshape(-1, state.size(-1)) 
         else:
-            # Multiple samples case - vectorized
-            if self.sampler_type == 'ddim':
-                action = self.sample_ddim(state, num_sample=num_sample)
-            elif self.sampler_type == 'ode':
-                action = self.sample_ode(state, num_sample=num_sample)
+            state_rep = state
+              
+            
+        if self.sampler_type == 'ddim':
+            action = self.inference(state_rep)
 
-        return action
+        action = action.reshape(state.shape[0], num_sample, self.action_dim).permute(1, 0, 2)
+        
+        if num_sample == 1:
+            action = action.squeeze(0)
 
+        return action.contiguous()
 
 
 class Actor(torch.nn.Module):
@@ -364,17 +385,16 @@ class DiffusionActor(torch.nn.Module):
         self.actor_squash = actor_squash
         self.actor_scale  = actor_scale
     def forward(self, *inputs):
-        samples =None        
+        
         out = self.encoder(*inputs)
         out = self.torso(out)
+        
         if len(out) > 1 and isinstance(out, tuple):
             out,samples = out
-            
-        pred = self.head(out,samples)
-        
-        if self.actor_squash:
-            pred = torch.tanh(pred) * self.actor_scale
-            
+            pred = self.head(out,samples)
+        else:
+            pred = self.head(out)
+           
         return pred
 
 

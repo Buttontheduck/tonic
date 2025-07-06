@@ -305,6 +305,7 @@ class DiffusionExpectedSARSA:
         with torch.no_grad():
             next_actions = self.model.target_actor(
                 next_observations,self.num_samples)
+            next_actions = torch.tanh(next_actions)
             next_actions = updaters.merge_first_two_dims(next_actions)
             next_observations = updaters.tile(
                 next_observations, self.num_samples)
@@ -318,7 +319,7 @@ class DiffusionExpectedSARSA:
 
 
         self.optimizer.zero_grad()
-        values = self.model.critic(observations, actions)
+        values = self.model.critic(observations, torch.tanh(actions))
         loss = self.loss(returns, values)
 
         loss.backward()
