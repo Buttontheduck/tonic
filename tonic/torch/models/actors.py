@@ -124,7 +124,7 @@ class DeterministicPolicyHead(torch.nn.Module):
 
 class DiffusionPolicyHead(torch.nn.Module):
     def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,embed_dim=32,embed_type ='fourier',n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp', \
-        sigma_max=80, sigma_min=0.001, rho=7, noise_type = 'karras' ):
+        sigma_max=80, sigma_min=0.001, rho=7,  s_churn=0., s_tmin=0.,  s_tmax=float('inf'), s_noise=1.,eta = 1.0, noise_type = 'karras' ):
         
         self.device = device
         self.hidden_dim = hidden_dim
@@ -138,9 +138,13 @@ class DiffusionPolicyHead(torch.nn.Module):
         self.model_type = model_type
         self.sigma_max = sigma_max
         self.sigma_min = sigma_min
-        self.rho = 7
+        self.rho = rho
+        self.s_churn = s_churn
+        self.s_tmin = s_tmin
+        self.s_tmax = s_tmax
+        self.s_noise = s_noise
         self.noise_type = noise_type
-        
+        self.eta = eta
         
 
 
@@ -169,26 +173,46 @@ class DiffusionPolicyHead(torch.nn.Module):
         return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
     def c_noise_fn(self,sigma):
-        return torch.log(sigma)*0.25
+        return torch.log(sigma)*1
 
-    def denoiser_fn(self, x, sigma, condition):
-            x_scaled = self.c_in_fn(sigma, self.model.sigma_data) * x
+    def denoiser_fn(self, noised_action, sigma, state):
+            scaled_noised_action= self.c_in_fn(sigma, self.model.sigma_data) * noised_action
             c_noise_expanded = self.c_noise_fn(sigma).expand(-1, 1)
-            out = self.model(x_scaled,c_noise_expanded, condition)
-            return self.c_skip_fn(sigma, self.model.sigma_data) * x + self.c_out_fn(sigma, self.model.sigma_data) * out
+            inner_model_output = self.model(scaled_noised_action, c_noise_expanded, state)
+            return self.c_skip_fn(sigma, self.model.sigma_data) * noised_action + self.c_out_fn(sigma, self.model.sigma_data) * inner_model_output
   
     def inference(self,state):
         
         batch_size = state.shape[0]
-        
         sigmas = self.get_noise_schedule(self.n_diffusion_steps,self.noise_type).to(self.device)
+        noised_action = sigmas[0] * torch.randn(batch_size, self.action_dim, device=self.device)
         
-        noise_action = sigmas[0] * torch.randn(batch_size, self.action_dim, device=self.device)
-        
-        action = self.sample_ddim(state,noise_action,sigmas)
+        if self.sampler_type =='ddim':
+            action = self.sample_ddim(state, noised_action, sigmas)
+            
+        elif self.sampler_type =='heun':
+            action = self.sample_heun(state, noised_action ,sigmas, s_churn=self.s_churn, \
+                                      s_tmin = self.s_tmin, s_tmax = self.s_tmax, s_noise = self.s_noise)
+            
+        elif self.sampler_type == 'dpm':
+            action = self.sample_dpm_2(state, noised_action ,sigmas, s_churn=self.s_churn, \
+                                      s_tmin = self.s_tmin, s_tmax = self.s_tmax, s_noise = self.s_noise)
+            
+        elif self.sampler_type == 'dpm_ancestral':
+            action = self.sample_dpm_2_ancestral(state, noised_action,  sigmas, self.eta)
+            
+        elif self.sampler_type =='euler':
+            action = self.sample_euler(state, noised_action ,sigmas, s_churn=self.s_churn, \
+                                      s_tmin = self.s_tmin, s_tmax = self.s_tmax, s_noise = self.s_noise)
+            
+        elif self.sampler_type == 'euler_ancestral':
+            action = self.sample_euler_ancestral(state, noised_action,  sigmas, self.eta)
+            
+        else:
+            raise ValueError("\n  Sampler type is not assigned correctly, Choose  'ddim' , 'heun' , 'euler' , 'euler_ancestral' , 'dpm' , 'dpm_ancestral' \n")
 
         return action
-        
+
     
     @torch.no_grad()
     def sample_ddim(
@@ -199,12 +223,9 @@ class DiffusionPolicyHead(torch.nn.Module):
     ):
         """
         DPM-Solver 1( or DDIM sampler"""
-
         s_in = action.new_ones([action.shape[0]])
         sigma_fn = lambda t: t.neg().exp()
         t_fn = lambda sigma: sigma.log().neg()
-        
-  
 
         
         for i in trange(len(sigmas) - 1, disable=True):
@@ -216,9 +237,218 @@ class DiffusionPolicyHead(torch.nn.Module):
             action = (sigma_fn(t_next) / sigma_fn(t)) * action - (-h).expm1() * denoised
             
         return action
+    
+    @torch.no_grad()
+    def sample_heun(
+        self,
+        state, 
+        action, 
+        sigmas, 
+        s_churn=0., 
+        s_tmin=0., 
+        s_tmax=float('inf'), 
+        s_noise=1.
+    ):
+        """
+        Implements Algorithm 2 (Heun steps) from Karras et al. (2022).
+        For S_churn =0 this is an ODE solver otherwise SDE
+        Every update consists of these substeps:
+        1. Addition of noise given the factor eps
+        2. Solving the ODE dx/dt at timestep t using the score model 
+        3. Take Euler step from t -> t+1 to get x_{i+1}
+        4. 2nd order correction step to get x_{i+1}^{(2)}
 
+        In contrast to the Euler variant, this variant computes a 2nd order correction step. 
+        """
+        
 
+        s_in = action.new_ones([action.shape[0]])
+        for i in trange(len(sigmas) - 1, disable=True):
             
+           
+            sigma_batch_next  = (sigmas[i + 1] * s_in).unsqueeze(1)
+            
+            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
+            eps = torch.randn_like(action) * s_noise
+            sigma_hat = sigmas[i] * (gamma + 1)
+            # if gamma > 0, use additional noise level for computation ODE-> SDE Solver
+            if gamma > 0:
+                action= action+ eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
+            denoised = self.denoiser_fn(action, (sigma_hat * s_in).unsqueeze(1), state)
+            d = to_d(action, sigma_hat, denoised)
+            dt = sigmas[i + 1] - sigma_hat
+            # if we only are at the last step we use an Euler step for our update otherwise the heun one 
+            if sigmas[i + 1] == 0:
+                # Euler method
+                action = action + d * dt
+            else:
+                # Heun's method
+                action_2 = action + d * dt
+                denoised_2 = self.denoiser_fn(action_2,sigma_batch_next,state)
+                d_2 = to_d( action_2, sigmas[i + 1], denoised_2)
+                d_prime = (d + d_2) / 2
+                action= action+ d_prime * dt
+
+        return action
+    
+    @torch.no_grad()
+    def sample_dpm_2(
+        self, 
+        state, 
+        action, 
+        sigmas, 
+        s_churn=0., 
+        s_tmin=0., 
+        s_tmax=float('inf'), 
+        s_noise=1.
+    ):
+        """
+        A sampler inspired by DPM-Solver-2 and Algorithm 2 from Karras et al. (2022).
+        SDE for S_churn!=0 and ODE otherwise
+
+        1.
+
+        Last denoising step is an Euler step  
+        """
+
+        s_in = action.new_ones([action.shape[0]])
+        for i in trange(len(sigmas) - 1, disable=True):
+            # compute stochastic gamma if s_churn > 0: 
+            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
+
+            eps = torch.randn_like(action) * s_noise
+            sigma_hat = sigmas[i] * (gamma + 1)
+            # add noise to our current action sample in SDE case
+            if gamma > 0:
+                action = action + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
+            # compute the derivative dx/dt at timestep t
+            denoised = self.denoiser_fn(action, (sigma_hat * s_in).unsqueeze(1), state)
+            d = to_d(action, sigma_hat, denoised)
+
+            # if we are at the last timestep: use Euler method
+            if sigmas[i + 1] == 0:
+                # Euler method
+                dt = sigmas[i + 1] - sigma_hat
+                action = action + d * dt
+            else:
+                # use Heun 2nd order update step 
+                sigma_mid = sigma_hat.log().lerp(sigmas[i + 1].log(), 0.5).exp()
+                dt_1 = sigma_mid - sigma_hat
+                dt_2 = sigmas[i + 1] - sigma_hat
+                action_2 = action + d * dt_1
+                denoised_2 = self.denoiser_fn(action_2, (sigma_mid * s_in).unsqueeze(1), state)
+                d_2 = to_d( action_2, sigma_mid, denoised_2)
+                action = action + d_2 * dt_2
+        return action
+    
+    @torch.no_grad()
+    def sample_dpm_2_ancestral(self, state, action,  sigmas, eta=1.):
+        """
+        Ancestral sampling with DPM-Solver inspired second-order steps.
+
+        Ancestral sampling is based on the DDPM paper (https://arxiv.org/abs/2006.11239) generation process.
+        Song et al. (2021) show that ancestral sampling can be used to improve the performance of DDPM for its SDE formulation.
+
+        1. Compute dx_{i}/dt at the current timestep 
+
+        """
+
+        s_in = action.new_ones([action.shape[0]])
+        for i in trange(len(sigmas) - 1, disable=True):
+           
+            denoised = self.denoiser_fn(action, (sigmas[i] * s_in).unsqueeze(1),state)
+            sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta=eta)
+            d = to_d(action, sigmas[i], denoised)
+            if sigma_down == 0:
+                # Euler method
+                dt = sigma_down - sigmas[i]
+                action= action+ d * dt
+            else:
+                # DPM-Solver-2
+                sigma_mid = sigmas[i].log().lerp(sigma_down.log(), 0.5).exp()
+                dt_1 = sigma_mid - sigmas[i]
+                dt_2 = sigma_down - sigmas[i]
+                action_2 = action+ d * dt_1
+                denoised_2 = self.denoiser_fn(action_2, (sigma_mid * s_in).unsqueeze(1), state)
+                d_2 = to_d( action_2, sigma_mid, denoised_2)
+                action= action + d_2 * dt_2
+                action= action + torch.randn_like(action) * sigma_up
+
+        return action      
+
+    @torch.no_grad()
+    def sample_euler(
+        self, 
+        state: torch.Tensor, 
+        action: torch.Tensor,  
+        sigmas, 
+        s_churn=0., 
+        s_tmin=0., 
+        s_tmax=float('inf'), 
+        s_noise=1.
+    ):
+        """
+        Implements a variant of Algorithm 2 (Euler steps) from Karras et al. (2022).
+        Stochastic sampler, which combines a first order ODE solver with explicit Langevin-like "churn"
+        of adding and removing noise. 
+        Every update consists of these substeps:
+        1. Addition of noise given the factor eps
+        2. Solving the ODE dx/dt at timestep t using the score model 
+        3. Take Euler step from t -> t+1 to get x_{i+1}
+
+        In contrast to the Heun variant, this variant does not compute a 2nd order correction step
+        For S_churn=0 the solver is an ODE solver
+        """
+
+        s_in = action.new_ones([action.shape[0]])
+        for i in trange(len(sigmas) - 1, disable=True):
+            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0. 
+            eps = torch.randn_like(action) * s_noise    # sample current noise depnding on S_noise 
+            sigma_hat = sigmas[i] * (gamma + 1)         # add noise to sigma
+            # print(action[:, -1, :])
+            if gamma > 0: # if gamma > 0, use additional noise level for computation
+                action = action + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5 
+            denoised = self.denoiser_fn(action, (sigma_hat * s_in).unsqueeze(1), state) # compute denoised action
+            d = to_d(action, sigma_hat, denoised) # compute derivative
+            dt = sigmas[i + 1] - sigma_hat # compute timestep
+            # Euler method
+            action = action + d * dt # take Euler step
+        return action
+ 
+
+    @torch.no_grad()
+    def sample_euler_ancestral(
+        self, 
+        state, 
+        action, 
+        sigmas,
+        eta=1.
+        ):
+        """
+        Ancestral sampling with Euler method steps.
+
+        1. compute dx_{i}/dt at the current timestep 
+        2. get \sigma_{up} and \sigma_{down} from ancestral method 
+        3. compute x_{t-1} = x_{t} + dx_{t}/dt * \sigma_{down}
+        4. Add additional noise after the update step x_{t-1} =x_{t-1} + z * \sigma_{up}
+        """
+        s_in = action.new_ones([action.shape[0]])
+        for i in trange(len(sigmas) - 1, disable=True):
+            # compute x_{t-1}
+            denoised = self.denoiser_fn(action, (sigmas[i] * s_in).unsqueeze(1), state)
+            # get ancestral steps
+            sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1], eta=eta)
+            # compute dx/dt 
+            d = to_d(action, sigmas[i], denoised)
+            # compute dt based on sigma_down value 
+            dt = sigma_down - sigmas[i]
+            # update current action 
+            action = action + d * dt
+            if sigma_down > 0:
+                action = action + torch.randn_like(action) * sigma_up
+        return action
+
+         
         
     def get_noise_schedule(self,n_sampling_steps, noise_schedule_type):
         """
@@ -240,13 +470,86 @@ class DiffusionPolicyHead(torch.nn.Module):
             return get_iddpm_sigmas(n_sampling_steps, self.sigma_min, self.sigma_max, device=self.device)
         raise ValueError('Unknown noise schedule type')
 
-    def old_sample_ddim(self, state, eta=0, num_sample=None):
-        """
-        DDIM sampling that generates either a single sample or multiple samples per state.
 
-        Returns tensor of shape [num_sample, batch_size, action_dim] if num_sample is given,
-        otherwise tensor of shape [batch_size, action_dim].
-        """
+    def forward(self, state, num_sample : int = 1):
+
+        if num_sample>1:
+            state_rep = state.unsqueeze(1).expand(-1, num_sample, -1).reshape(-1, state.size(-1)) 
+        else:
+            state_rep = state
+            
+        action = self.inference(state_rep)
+
+        action = action.reshape(state.shape[0], num_sample, self.action_dim).permute(1, 0, 2)
+        
+        if num_sample == 1:
+            action = action.squeeze(0)
+
+        return action.contiguous()
+
+
+
+
+
+class Actor(torch.nn.Module):
+    def __init__(self, encoder, torso, head):
+        super().__init__()
+        self.encoder = encoder
+        self.torso = torso
+        self.head = head
+
+    def initialize(
+        self, observation_space, action_space, observation_normalizer=None
+    ):
+        size = self.encoder.initialize(
+            observation_space)
+        size = self.torso.initialize(size)
+        action_size = action_space.shape[0]
+        self.head.initialize(size, action_size)
+
+    def forward(self, *inputs):
+
+        out = self.encoder(*inputs)
+        out = self.torso(out)
+        return self.head(out)
+
+class DiffusionActor(torch.nn.Module):
+    def __init__(self, encoder, torso, head):
+        super().__init__()
+        self.encoder = encoder
+        self.torso = torso
+        self.head = head
+
+    def initialize(
+        self, observation_space, action_space, observation_normalizer=None):
+        size = self.encoder.initialize(
+            observation_space)
+        size = self.torso.initialize(size)
+        action_size = action_space.shape[0]
+        self.head.initialize(size, action_size)
+
+    def forward(self, *inputs):
+        
+        out = self.encoder(*inputs)
+        out = self.torso(out)
+        
+        if len(out) > 1 and isinstance(out, tuple):
+            out,samples = out
+            pred = self.head(out,samples)
+        else:
+            pred = self.head(out)
+           
+        return pred
+
+
+    """  
+    def old_sample_ddim(self, state, eta=0, num_sample=None):
+        
+        #DDIM sampling that generates either a single sample or multiple samples per state.
+
+        #Returns tensor of shape [num_sample, batch_size, action_dim] if num_sample is given,
+        #otherwise tensor of shape [batch_size, action_dim].
+    
         # Setup sampling parameters
         max_sigma = 80.0
         min_sigma = 1e-4
@@ -324,77 +627,4 @@ class DiffusionPolicyHead(torch.nn.Module):
                     x = x0_pred + dir_x0 * sigma_next
 
         return x
-
-   
-    def forward(self, state, num_sample : int = 1):
-
-        if num_sample>1:
-            state_rep = state.unsqueeze(1).expand(-1, num_sample, -1).reshape(-1, state.size(-1)) 
-        else:
-            state_rep = state
-              
-            
-        if self.sampler_type == 'ddim':
-            action = self.inference(state_rep)
-
-        action = action.reshape(state.shape[0], num_sample, self.action_dim).permute(1, 0, 2)
-        
-        if num_sample == 1:
-            action = action.squeeze(0)
-
-        return action.contiguous()
-
-
-class Actor(torch.nn.Module):
-    def __init__(self, encoder, torso, head):
-        super().__init__()
-        self.encoder = encoder
-        self.torso = torso
-        self.head = head
-
-    def initialize(
-        self, observation_space, action_space, observation_normalizer=None
-    ):
-        size = self.encoder.initialize(
-            observation_space)
-        size = self.torso.initialize(size)
-        action_size = action_space.shape[0]
-        self.head.initialize(size, action_size)
-
-    def forward(self, *inputs):
-
-        out = self.encoder(*inputs)
-        out = self.torso(out)
-        return self.head(out)
-
-class DiffusionActor(torch.nn.Module):
-    def __init__(self, encoder, torso, head):
-        super().__init__()
-        self.encoder = encoder
-        self.torso = torso
-        self.head = head
-
-    def initialize(
-        self, observation_space, action_space, observation_normalizer=None,actor_squash =False,actor_scale=1,
-    ):
-        size = self.encoder.initialize(
-            observation_space)
-        size = self.torso.initialize(size)
-        action_size = action_space.shape[0]
-        self.head.initialize(size, action_size)
-        self.actor_squash = actor_squash
-        self.actor_scale  = actor_scale
-    def forward(self, *inputs):
-        
-        out = self.encoder(*inputs)
-        out = self.torso(out)
-        
-        if len(out) > 1 and isinstance(out, tuple):
-            out,samples = out
-            pred = self.head(out,samples)
-        else:
-            pred = self.head(out)
-           
-        return pred
-
-
+        """

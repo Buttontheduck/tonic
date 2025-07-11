@@ -92,7 +92,7 @@ class DiffusionActorCriticWithTargets(torch.nn.Module):
         if self.observation_normalizer:
             self.observation_normalizer.initialize(observation_space.shape)
         self.actor.initialize(
-            observation_space, action_space, self.observation_normalizer, self.actor_squash,self.action_scale)
+            observation_space, action_space, self.observation_normalizer)
         self.critic.initialize(
             observation_space, action_space, self.observation_normalizer,
             self.return_normalizer)

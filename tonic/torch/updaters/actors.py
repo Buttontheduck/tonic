@@ -632,18 +632,12 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             c_in    = append_dims( c_in_fn(sigma, sigma_data)   ,action.ndim)
             c_noise = append_dims( c_noise_fn(sigma)            ,action.ndim)
             
-            
-            lam     = 1.0 / (c_out**2)
 
             scaled_noised_action = c_in * noised_action
 
-
-            
-            out = self.denoiser(scaled_noised_action.to(self.device), c_noise.to(self.device), state_expanded.to(self.device))
-
-
-           
-            residual = out - (1.0 / c_out) * (action - c_skip*(action + noise))
+            out = self.denoiser(scaled_noised_action.to(self.device), c_noise.to(self.device), state_expanded.to(self.device)) ## NN Model
+   
+            residual = out - (1.0 / c_out) * (action - c_skip*noised_action)  # Equals: ( Denoised_Action - Action )*(1/c_out), Beso uses this
             unweighted_loss = torch.mean(residual**2, dim=-1)
             loss = unweighted_loss*q_weights
             return loss.mean()
