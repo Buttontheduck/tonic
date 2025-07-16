@@ -54,12 +54,12 @@ class DistributionalValueHead(torch.nn.Module):
         self.fn = fn
         self.values = torch.linspace(vmin, vmax, num_atoms).float()
 
-    def initialize(self, input_size, return_normalizer=None):
+    def initialize(self, input_size, return_normalizer=None, device = 'cpu'):
         if return_normalizer:
             raise ValueError(
                 'Return normalizers cannot be used with distributional value'
                 'heads.')
-        self.distributional_layer = torch.nn.Linear(input_size, self.num_atoms)
+        self.distributional_layer = torch.nn.Linear(input_size, self.num_atoms).to(device)
         if self.fn:
             self.distributional_layer.apply(self.fn)
 

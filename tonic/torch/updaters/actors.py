@@ -581,8 +581,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
             residual = out - (1.0 / c_out) * (action - c_skip*(action + z))
             unweighted_loss = torch.mean(residual**2, dim=-1)
-            effective_weight = lam * (c_out[:, 0]**2)
-            loss_tensor = effective_weight*unweighted_loss*q_weights
+            loss_tensor = unweighted_loss*q_weights
             loss = loss_tensor.sum(dim=0)
             return loss.mean()
 
@@ -629,7 +628,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             flat_observations = updaters.merge_first_two_dims(
                 tiled_observations)
             flat_actions = updaters.merge_first_two_dims(actions)
-            values = self.model.target_critic(flat_observations, flat_actions).to("cpu")
+            value_dist = self.model.target_critic(flat_observations, flat_actions)
+            values = value_dist.mean()
             values = values.view(self.num_samples, -1)
 
 
