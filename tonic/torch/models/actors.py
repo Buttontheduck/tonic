@@ -215,7 +215,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         otherwise tensor of shape [batch_size, action_dim].
         """
         # Setup sampling parameters
-        max_sigma = 80.0
+        max_sigma = 20.0
         min_sigma = 1e-4
         sigmas = torch.exp(torch.linspace(
             torch.log(torch.tensor(max_sigma)),

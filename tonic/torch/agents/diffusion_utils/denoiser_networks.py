@@ -294,20 +294,22 @@ class ConditionalMLP(nn.Module):
 
         self.network = nn.Sequential(*layers)
         
+        hidden_embed  = max(embed_dim * 5, 256)
+
         
         if embed_type == 'sinusoidal':
             self.sigma_embed = nn.Sequential(
                 SinusoidalProjection(embed_dim),
-                nn.Linear(embed_dim, embed_dim * 2),
+                nn.Linear(embed_dim, hidden_embed),
                 nn.Mish(),
-                nn.Linear(embed_dim * 2, embed_dim),
+                nn.Linear(hidden_embed, embed_dim),
                 )
         elif embed_type == 'fourier':
             self.sigma_embed = nn.Sequential(
                 FourierFeaturesEmbedding(embed_dim),
-                nn.Linear(embed_dim, embed_dim * 2),
+                nn.Linear(embed_dim, hidden_embed),
                 nn.Mish(),
-                nn.Linear(embed_dim * 2, embed_dim),
+                nn.Linear(hidden_embed, embed_dim),
                 )
         else:
             ValueError("\n Sigma Embeddings are not assigned correctly withing ConditionalMLP \n")
