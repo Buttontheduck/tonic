@@ -102,6 +102,7 @@ class DistributionalDeterministicQLearning:
     ):
         with torch.no_grad():
             next_actions = self.model.target_actor(next_observations)
+            next_actions = torch.tanh(next_actions)
             next_value_distributions = self.model.target_critic(
                 next_observations, next_actions)
             values = next_value_distributions.values
@@ -109,7 +110,7 @@ class DistributionalDeterministicQLearning:
             targets = next_value_distributions.project(returns)
 
         self.optimizer.zero_grad()
-        value_distributions = self.model.critic(observations, actions)
+        value_distributions = self.model.critic(observations,  torch.tanh(actions))
         log_probabilities = torch.nn.functional.log_softmax(
             value_distributions.logits, dim=-1)
         loss = -(targets * log_probabilities).sum(dim=-1).mean()
