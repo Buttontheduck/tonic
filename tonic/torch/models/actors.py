@@ -123,7 +123,7 @@ class DeterministicPolicyHead(torch.nn.Module):
 
 
 class DiffusionPolicyHead(torch.nn.Module):
-    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,embed_dim=32,embed_type ='fourier',n_hidden=4,n_blocks=6, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp', \
+    def __init__(self, device="cpu", num_diffusion_steps=50, hidden_dim=256,embed_dim=64,embed_type ='sinusoidal',n_hidden=4, sigma_data=1.0,sampler_type='ddim',model_type = 'mlp', \
         sigma_max=80, sigma_min=0.001, rho=7,  s_churn=0., s_tmin=0.,  s_tmax=float('inf'), s_noise=1.,eta = 1.0, noise_type = 'karras' ):
         
         self.device = device
@@ -133,7 +133,6 @@ class DiffusionPolicyHead(torch.nn.Module):
         self.n_hidden=n_hidden
         self.sigma_data=sigma_data
         self.sampler_type=sampler_type
-        self.n_blocks = n_blocks
         self.n_diffusion_steps = num_diffusion_steps
         self.model_type = model_type
         self.sigma_max = sigma_max
