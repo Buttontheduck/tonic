@@ -3,7 +3,12 @@ import torch
 from tonic.torch import models, updaters  # noqa
 import tonic.torch.agents.diffusion_utils as du
 from tonic.torch.agents.diffusion_utils.ema_helper.ema import ExponentialMovingAverage as ema
+from tonic.torch.agents.diffusion_utils.diffusion_agents.k_diffusion.gc_sampling import *
 from tonic import logger
+from functools import partial
+import tonic.torch.updaters.utils as utils
+import math
+from tonic.torch.updaters.utils import append_dims
 
 FLOAT_EPSILON = 1e-8
 
@@ -472,7 +477,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         epsilon_mean=1e-3, epsilon_std=1e-6, initial_log_temperature=1.,
         initial_log_alpha_mean=1., initial_log_alpha_std=10.,
         min_log_dual=-18., per_dim_constraining=True, action_penalization=True,
-        actor_optimizer=None, dual_optimizer=None, actor_gradient_clip=0,dual_gradient_clip=0):
+        actor_optimizer=None, dual_optimizer=None, actor_gradient_clip=0,dual_gradient_clip=0,
+        sigma_mean=-1.2, sigma_std=1.2, sigma_min=0.001, sigma_max=80, rho =7 ,density_type ='lognormal'):
         
         self.num_samples = num_samples
         self.epsilon = epsilon
@@ -491,7 +497,13 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             lambda params: torch.optim.Adam(params, lr=1e-2))
         self.actor_gradient_clip = actor_gradient_clip
         self.dual_gradient_clip = dual_gradient_clip
-
+        self.sigma_mean = sigma_mean
+        self.sigma_std = sigma_std
+        self.sigma_max = sigma_max
+        self.sigma_min = sigma_min
+        self.rho = rho
+        self.density_type = density_type
+        
     def initialize(self, model, action_space):
         self.model = model
         self.denoiser = self.model.actor.head.model
@@ -553,37 +565,81 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
         def c_noise_fn(sigma):
-            return torch.log(sigma)
+            return torch.log(sigma)*0.25
         
+        def make_sample_density():
+            """ 
+            Generate a sample density function based on the desired type for training the model
+            """
+            sd_config = {
+                        "loc":   0.5,   
+                        "scale": 0.5,   
+                        "min_value": self.sigma_min, 
+                        "max_value": self.sigma_max,
+                        }
+
+            if self.density_type == 'lognormal':
+                loc = self.sigma_mean  
+                scale = self.sigma_std 
+                return partial(utils.rand_log_normal, loc=loc, scale=scale)
+
+            if self.density_type == 'loglogistic':
+                loc = sd_config['loc'] if 'loc' in sd_config else math.log(self.denoiser.sigma_data)
+                scale = sd_config['scale'] if 'scale' in sd_config else 0.5
+                min_value = sd_config['min_value'] if 'min_value' in sd_config else self.sigma_min
+                max_value = sd_config['max_value'] if 'max_value' in sd_config else self.sigma_max
+                return partial(utils.rand_log_logistic, loc=loc, scale=scale, min_value=min_value, max_value=max_value)
+
+            if self.density_type == 'loguniform':
+                min_value = sd_config['min_value'] if 'min_value' in sd_config else self.sigma_min
+                max_value = sd_config['max_value'] if 'max_value' in sd_config else self.sigma_max
+                return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
+            
+            if self.density_type == 'uniform':
+                return partial(utils.rand_uniform, min_value=self.sigma_min, max_value=self.sigma_max)
+
+            if self.density_type == 'v-diffusion':
+                min_value = self.min_value if 'min_value' in sd_config else self.sigma_min
+                max_value = sd_config['max_value'] if 'max_value' in sd_config else self.sigma_max
+                return partial(utils.rand_v_diffusion, sigma_data=self.sigma_data, min_value=min_value, max_value=max_value)
+            if self.density_type == 'discrete':
+                sigmas = get_sigmas_exponential(self.n_sampling_steps, self.sigma_min, self.sigma_max, self.device)
+                return partial(utils.rand_discrete, values=sigmas)
+            else:
+                raise ValueError('Unknown sample density type')
+      
         def score_matching_loss(action, state, q_weights, sigma_data):
-            p_mean = -1.2
-            p_std  =  1.2
+           
 
-            batch_size = state.shape[0]
-            log_sigma = p_mean + p_std * torch.randn(batch_size, device=action.device, dtype=action.dtype)
-            sigma = torch.exp(log_sigma).unsqueeze(-1)
+            num_sample = action.shape[0]
+            batch_size = action.shape[1]
+            
+            action = updaters.merge_first_two_dims(action).to(self.device)
+            state_expanded = state.repeat(num_sample, 1) 
+            q_weights = updaters.merge_first_two_dims(q_weights).to(self.device)
+            
+            density = make_sample_density()
+            
+            sigma = density(shape=(batch_size*num_sample,), device=self.device)
+
+            noise = append_dims(sigma, action.ndim) * torch.randn_like(action,device=self.device)
+            
+            noised_action = action + noise
 
 
-            z = sigma * torch.randn_like(action)
+            c_skip  = append_dims( c_skip_fn(sigma, sigma_data) ,action.ndim)
+            c_out   = append_dims( c_out_fn(sigma, sigma_data)  ,action.ndim)
+            c_in    = append_dims( c_in_fn(sigma, sigma_data)   ,action.ndim)
+            c_noise = append_dims( c_noise_fn(sigma)            ,action.ndim)
+            
 
-            c_skip  = c_skip_fn(sigma, sigma_data)
-            c_out   = c_out_fn(sigma, sigma_data)
-            c_in    = c_in_fn(sigma, sigma_data)
-            c_noise = c_noise_fn(sigma)
-            lam     = 1.0 / (c_out[:, 0]**2)
+            scaled_noised_action = c_in * noised_action
 
-            noisy_action = c_in * (action + z)
-            c_noise_expanded = c_noise.expand(-1, 1)
-            c_noise_expanded = c_noise_expanded.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
-            state_expanded  = state.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
-            inp = torch.cat([noisy_action, c_noise_expanded], dim=-1)
-            out = self.denoiser(inp.to(self.device), state_expanded.to(self.device)).to("cpu")
-
-            residual = out - (1.0 / c_out) * (action - c_skip*(action + z))
+            out = self.denoiser(scaled_noised_action.to(self.device), c_noise.to(self.device), state_expanded.to(self.device)) ## NN Model
+   
+            residual = out - (1.0 / c_out) * (action - c_skip*noised_action)  # Equals: ( Denoised_Action - Action )*(1/c_out), Beso uses this
             unweighted_loss = torch.mean(residual**2, dim=-1)
-            effective_weight = lam * (c_out[:, 0]**2)
-            loss_tensor = effective_weight*unweighted_loss*q_weights
-            loss = loss_tensor.sum(dim=0)
+            loss = unweighted_loss*q_weights
             return loss.mean()
 
         def weights_and_temperature_loss(q_values, epsilon, temperature):
@@ -667,10 +723,10 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             temperature_loss += penalty_temperature_loss
         
 
-        policy_loss = score_matching_loss(unbounded_actions,observations,weights,1)
+        policy_loss = score_matching_loss(unbounded_actions.to(self.device),observations,weights,self.denoiser.sigma_data)
            
         dual_loss = temperature_loss
-        loss = policy_loss + dual_loss
+        loss = policy_loss.cpu() + dual_loss
 
         loss.backward()
 
