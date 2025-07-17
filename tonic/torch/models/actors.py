@@ -172,7 +172,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
     def c_noise_fn(self,sigma):
-        return torch.log(sigma)*1
+        return torch.log(sigma)*0.25
 
     def denoiser_fn(self, noised_action, sigma, state):
             scaled_noised_action= self.c_in_fn(sigma, self.model.sigma_data) * noised_action
@@ -243,10 +243,10 @@ class DiffusionPolicyHead(torch.nn.Module):
         state, 
         action, 
         sigmas, 
-        s_churn=0., 
-        s_tmin=0., 
-        s_tmax=float('inf'), 
-        s_noise=1.
+        s_churn  = 0., 
+        s_tmin   = 0., 
+        s_tmax   = float('inf'), 
+        s_noise  = 1.
     ):
         """
         Implements Algorithm 2 (Heun steps) from Karras et al. (2022).

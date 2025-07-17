@@ -565,7 +565,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
         def c_noise_fn(sigma):
-            return torch.log(sigma)*1
+            return torch.log(sigma)*0.25
         
         def make_sample_density():
             """ 
