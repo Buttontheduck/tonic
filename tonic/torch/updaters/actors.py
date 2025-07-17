@@ -614,7 +614,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             num_sample = action.shape[0]
             batch_size = action.shape[1]
             
-            action = action.view(-1,1)
+            action = updaters.merge_first_two_dims(action).to(self.device)
             state_expanded = state.repeat(num_sample, 1) 
             q_weights = updaters.merge_first_two_dims(q_weights).to(self.device)
             
