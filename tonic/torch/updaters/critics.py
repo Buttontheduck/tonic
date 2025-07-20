@@ -113,7 +113,7 @@ class DistributionalDeterministicQLearning:
         value_distributions = self.model.critic(observations, torch.tanh(actions))
         log_probabilities = torch.nn.functional.log_softmax(
             value_distributions.logits, dim=-1)
-        loss = -(targets * log_probabilities).sum(dim=-1).mean()
+        loss = -(targets * log_probabilities.to("cpu")).sum(dim=-1).mean()
 
         loss.backward()
         if self.gradient_clip > 0:
