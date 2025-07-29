@@ -1,5 +1,7 @@
 import torch
-
+import torch.nn.functional as F
+from torch.distributions import Normal, MultivariateNormal, Categorical, MixtureSameFamily, Independent
+from typing import Optional
 
 class ValueHead(torch.nn.Module):
     def __init__(self, fn=None):
@@ -66,7 +68,50 @@ class DistributionalValueHead(torch.nn.Module):
     def forward(self, inputs):
         logits = self.distributional_layer(inputs)
         return CategoricalWithSupport(values=self.values, logits=logits)
+    
+    
+    
+class GaussianMixtureHead(torch.nn.Module):
+    def __init__(self, num_dimensions: int, num_components: int, hidden_dim: int, multivariate: bool, init_scale: Optional[float] = None, name: str = 'GaussianMixture'):
+        super().__init__()
+        
+        self.num_dimensions = num_dimensions
+        self.num_components = num_components
+        self.multivariate = multivariate
+        
+        self.hidden_dim = hidden_dim
+        self.init_scale = init_scale
+        
+        if self.multivariate:
+            self.logit_size = self.num_components
+        else:
+            self.logit_size = self.num_components * self.num_dimensions
+            
+    def initialize(self, input_size,  device = 'cpu'):
+        
 
+        self.input_size = input_size   
+        self.device = device
+        
+        if self.init_scale is not None:
+            self._scale_factor = self.init_scale / F.softplus(torch.tensor(0.))
+        else:
+            self._scale_factor = 1.0 
+        
+
+        self.logit_layer = torch.nn.LazyLinear(self.logit_size).to(self.device)
+        
+        self.loc_layer = torch.nn.LazyLinear(self.inp)
+         
+
+        
+        
+        
+        
+        
+    
+    
+        
 
 class Critic(torch.nn.Module):
     def __init__(self, encoder, torso, head,device):
