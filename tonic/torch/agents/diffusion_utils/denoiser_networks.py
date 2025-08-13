@@ -9,6 +9,9 @@ import scipy
 import matplotlib.pyplot as plt
 
 
+from tonic.torch.agents.diffusion_utils.sigma_embeddings import *
+
+
 class MLPNetwork(nn.Module):
     """
     Simple multi layer perceptron network which can be generated with different 
@@ -256,13 +259,13 @@ class ResidualMLPNetwork(nn.Module):
         self.to(device)
     
     def get_params(self):
-        return self.parameters()  # More standard way to get parameters
+        return self.parameters()  # More standarvitd way to get parameters
 
 
     
 # Modified to include simple scalar condition (0-1)
 class ConditionalMLP(nn.Module):
-    def __init__(self,in_dim=4, out_dim=2, hidden_dim=256, n_hidden=4, sigma_data=1.0):
+    def __init__(self,in_dim=4, out_dim=2, hidden_dim=256, embed_dim=64, embed_type='sinusoidal', n_hidden=4, sigma_data=1.0):
         super().__init__()
 
         self.sigma_data = sigma_data
@@ -291,13 +294,39 @@ class ConditionalMLP(nn.Module):
 
 
         self.network = nn.Sequential(*layers)
+        
+        embed_hidden_dim = max(embed_dim * 4, 256)
+        
+        if embed_type == 'sinusoidal':
+            self.sigma_embed = nn.Sequential(
+                SinusoidalProjection(embed_dim),
+                nn.Linear(embed_dim, embed_hidden_dim),
+                nn.Mish(),
+                nn.Linear(embed_hidden_dim, embed_dim),
+                )
+        elif embed_type == 'fourier':
+            self.sigma_embed = nn.Sequential(
+                FourierFeaturesEmbedding(embed_dim),
+                nn.Linear(embed_dim, embed_hidden_dim),
+                nn.Mish(),
+                nn.Linear(embed_hidden_dim, embed_dim),
+                )
+        else:
+            ValueError("\n Sigma Embeddings are not assigned correctly within ConditionalMLP \n")
+            
 
-    def forward(self, x, condition):
+    def forward(self, x, sigma, states):
         # Concatenate condition directly with input
         # condition should be a scalar between 0 and 1
-        inp = torch.cat([x, condition.to(x.device)], dim=-1)
+        sigma_emb = self.sigma_embed(sigma) 
+        sigma_emb = sigma_emb.squeeze(1)
+        
+        inp = torch.cat([x, sigma_emb.to(x.device), states.to(x.device)], dim=-1)
+    
         output = self.network(inp)
         return output
+    
+
     
 
 class EtaMLP(nn.Module):
