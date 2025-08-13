@@ -16,8 +16,8 @@ def default_model():
             head=models.DiffusionPolicyHead(device='cpu',num_diffusion_steps=50, hidden_dim=100,n_hidden=2,sampler_type='ddim',model_type='mlp',sigma_data=1)),
         critic=models.Critic(
             encoder=models.ObservationActionEncoder(),
-            torso=models.MLP((256, 256), torch.nn.ReLU),
-            head=models.ValueHead(),
+            torso=models.LayerNormMLP((256, 256)),
+            head=models.GaussianMixtureHead(),
             device='cpu'),
         observation_normalizer=normalizers.MeanStd(),
         actor_squash=False,

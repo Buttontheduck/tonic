@@ -19,6 +19,9 @@ from .critics import TwinCriticDeterministicQLearning
 from .critics import TwinCriticSoftQLearning
 from .critics import VRegression
 from .critics import DiffusionExpectedSARSA
+from .critics import MixtureOfGaussian
+from .critics import DiffusionMixtureOfGaussian
+
 
 from .optimizers import ConjugateGradient
 
@@ -32,4 +35,4 @@ __all__ = [
     DeterministicQLearning, DistributionalDeterministicQLearning,
     ExpectedSARSA, DiffusionExpectedSARSA, QRegression, TargetActionNoise,
     TwinCriticDeterministicQLearning, TwinCriticSoftQLearning, VRegression,
-    ConjugateGradient]
+    ConjugateGradient,MixtureOfGaussian,DiffusionMixtureOfGaussian]

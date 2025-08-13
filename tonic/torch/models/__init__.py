@@ -11,11 +11,11 @@ from .actors import GaussianPolicyHead
 from .actors import SquashedMultivariateNormalDiag
 from .actors import DiffusionPolicyHead
 
-from .critics import Critic, DistributionalValueHead, ValueHead
+from .critics import Critic, DistributionalValueHead, ValueHead, GaussianMixtureHead
 
 from .encoders import ObservationActionEncoder, ObservationEncoder
 
-from .utils import MLP, trainable_variables
+from .utils import MLP, trainable_variables, LayerNormMLP, variance_scaling_init, uniform_initializer
 
 from .temperature import Temperature
 
@@ -25,4 +25,5 @@ __all__ = [
     DetachedScaleGaussianPolicyHead, GaussianPolicyHead,
     DeterministicPolicyHead, Actor, Critic, DistributionalValueHead,
     ValueHead, ActorCritic, ActorCriticWithTargets, ActorTwinCriticWithTargets,DiffusionActor,
-    DiffusionActorCriticWithTargets,DiffusionPolicyHead,Temperature]
+    DiffusionActorCriticWithTargets,DiffusionPolicyHead,
+    Temperature, LayerNormMLP,GaussianMixtureHead, variance_scaling_init, uniform_initializer]

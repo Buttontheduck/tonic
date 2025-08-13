@@ -1,15 +1,21 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 import torch.nn.functional as F
 from torch.distributions import Categorical, Independent, MixtureSameFamily,MultivariateNormal, Normal
 from typing import Sequence, Optional, Callable
 import math
 
 
+def variance_scaling_init(tensor, scale=1e-5):
+    fan_in = tensor.size(1) if tensor.dim() > 1 else tensor.size(0)
+    std = (scale / fan_in) ** 0.5
+    std = std / 0.87962566103423978
+    return init.trunc_normal_(tensor, mean=0.0, std=std, a=-2*std, b=2*std)
 
 def uniform_initializer(layer , scale = 0.333333):
     fan_out = layer.weight.size(0)  # number of output features
-    L = torch.sqrt(torch.tensor(3.0 * scale / fan_out))
+    L = math.sqrt(3.0 * scale / fan_out) 
     torch.nn.init.uniform_(layer.weight, -L, L)
     if layer.bias is not None:
         torch.nn.init.zeros_(layer.bias)
@@ -19,13 +25,13 @@ def uniform_initializer(layer , scale = 0.333333):
 class LayerNormMLP(torch.nn.Module):
     def __init__(self,  
         layer_sizes: Sequence[int],
-        activation: Callable[[torch.Tensor], torch.Tensor] = F.elu,
+        activation: Callable[[], nn.Module] = nn.GELU, 
         activate_final: bool = False,):
         super().__init__()
         
         self.layer_sizes = layer_sizes
         self.w_initializer= uniform_initializer
-        self.activation = activation
+        self.activation_cls = activation
         self.activate_final = activate_final
         
     def initialize(self, input_size, device= "cpu"):
@@ -44,11 +50,12 @@ class LayerNormMLP(torch.nn.Module):
         layers.append(nn.Tanh())
         
         in_dim = self.layer_sizes[0]
-        for out_dim in self.layer_sizes[1:]:
+        for i,out_dim in enumerate(self.layer_sizes[1:]):
             layer_hidden =  nn.Linear(in_dim,out_dim)
             self.w_initializer(layer_hidden)
             layers.append(layer_hidden)
-            layers.append(self.activation)
+            if i < len(self.layer_sizes[1:])-1 or self.activate_final:
+                layers.append(self.activation_cls())
             in_dim = out_dim
             
         self.model = nn.Sequential(*layers)

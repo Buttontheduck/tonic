@@ -2,6 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch.distributions import Normal, MultivariateNormal, Categorical, MixtureSameFamily, Independent
 from typing import Optional
+from tonic.torch.models.utils import variance_scaling_init
+_MIN_SCALE = 1e-6  
 
 class ValueHead(torch.nn.Module):
     def __init__(self, fn=None):
@@ -71,46 +73,67 @@ class DistributionalValueHead(torch.nn.Module):
     
     
     
+    
+    
 class GaussianMixtureHead(torch.nn.Module):
-    def __init__(self, num_dimensions: int, num_components: int, hidden_dim: int, multivariate: bool, init_scale: Optional[float] = None, name: str = 'GaussianMixture'):
+    def __init__(self, num_dimensions: int, num_components: int, init_scale: Optional[float] = None):
         super().__init__()
         
         self.num_dimensions = num_dimensions
         self.num_components = num_components
-        self.multivariate = multivariate
-        
-        self.hidden_dim = hidden_dim
+
         self.init_scale = init_scale
-        
-        if self.multivariate:
-            self.logit_size = self.num_components
+
+        if self.init_scale is not None:
+            self.scale_factor = self.init_scale / F.softplus(torch.tensor(0.))
         else:
-            self.logit_size = self.num_components * self.num_dimensions
+            self.scale_factor = 1.0 
+               
+        self.out_dim = self.num_components * self.num_dimensions
+
+        self.logit_size = self.num_components * self.num_dimensions
+            
+        self.w_init  = lambda tensor: variance_scaling_init(tensor, scale=1e-5)
             
     def initialize(self, input_size,  device = 'cpu'):
         
 
         self.input_size = input_size   
         self.device = device
+    
+
+        self.logit_layer = torch.nn.Linear(self.input_size,self.logit_size).to(self.device)
+        self.loc_layer   = torch.nn.Linear(self.input_size,self.out_dim).to(self.device)  # out_dim = self.num_components * self.num_dimensions
+        self.scale_layer = torch.nn.Linear(self.input_size,self.out_dim).to(self.device)  # out_dim = self.num_components * self.num_dimensions
         
-        if self.init_scale is not None:
-            self._scale_factor = self.init_scale / F.softplus(torch.tensor(0.))
-        else:
-            self._scale_factor = 1.0 
+        variance_scaling_init(self.logit_layer.weight, scale=1e-5)
+        variance_scaling_init(self.loc_layer.weight, scale=1e-5)
+        variance_scaling_init(self.scale_layer.weight, scale=1e-5)
+        
+    def forward(self,inputs):
+        
+        batch_size = inputs.shape[0]
+        
+        logits = self.logit_layer(inputs)
+        locs = self.loc_layer(inputs)
         
 
-        self.logit_layer = torch.nn.LazyLinear(self.logit_size).to(self.device)
+        scales = self.scale_layer(inputs)
+        scales = self.scale_factor * F.softplus(scales) + _MIN_SCALE
         
-        self.loc_layer = torch.nn.LazyLinear(self.inp)
-         
 
+     
+        locs = locs.reshape(batch_size, self.num_dimensions, self.num_components)
+        scales = scales.reshape(batch_size, self.num_dimensions, self.num_components)
+        logits = logits.reshape(batch_size, self.num_dimensions, self.num_components)
+            
+
+        components = Normal(locs, scales)
+        mixture = Categorical(logits=logits)
         
-        
-        
-        
-        
-    
-    
+        return MixtureSameFamily(mixture, components)
+            
+            
         
 
 class Critic(torch.nn.Module):
