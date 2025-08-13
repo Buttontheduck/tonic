@@ -473,7 +473,7 @@ class MaximumAPosterioriPolicyOptimization:
 
 class DiffusionMaximumAPosterioriPolicyOptimization:
     def __init__(
-        self, num_samples=20, epsilon=1e-1, epsilon_penalty=1e-3,
+        self, num_samples=40, epsilon=1e-1, epsilon_penalty=1e-3,
         epsilon_mean=1e-3, epsilon_std=1e-6, initial_log_temperature=1.,
         initial_log_alpha_mean=1., initial_log_alpha_std=10.,
         min_log_dual=-18., per_dim_constraining=True, action_penalization=True,
@@ -565,7 +565,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
         def c_noise_fn(sigma):
-            return torch.log(sigma)*0.25
+            return torch.log(sigma)*1
         
         def make_sample_density():
             """ 

@@ -28,7 +28,7 @@ class CategoricalWithSupport:
         self.probabilities = torch.nn.functional.softmax(logits, dim=-1)
 
     def mean(self):
-        return (self.probabilities * self.values).sum(dim=-1)
+        return (self.probabilities.to("cpu") * self.values).sum(dim=-1)
 
     def project(self, returns):
         vmin, vmax = self.values[0], self.values[-1]
@@ -44,7 +44,7 @@ class CategoricalWithSupport:
                      ((1 - delta_sign) * delta_values / d_neg))
         delta_clipped = torch.clamp(1 - delta_hat, 0, 1)
 
-        return (delta_clipped * self.probabilities[:, None]).sum(dim=2)
+        return (delta_clipped * self.probabilities[:, None].to("cpu")).sum(dim=2)
 
 
 class DistributionalValueHead(torch.nn.Module):
