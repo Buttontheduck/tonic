@@ -19,6 +19,7 @@ def default_model():
             torso=models.MLP((256, 256), torch.nn.ReLU),
             head=models.ValueHead(),
             device='cpu'),
+        temperature=models.Temperature(IdentityEncoder(),hidden_dim=256,n_hidden=4,device='cpu'),
         observation_normalizer=normalizers.MeanStd(),
         actor_squash=False,
         action_scale=1)
