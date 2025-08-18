@@ -1,0 +1,3 @@
+- seed=0
+- agent_config.agent_config.actor_updater.action_penalization=False
+- agent_config.agent_config.model.actor.head.num_diffusion_steps=2
