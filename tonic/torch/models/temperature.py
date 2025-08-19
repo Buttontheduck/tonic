@@ -13,7 +13,7 @@ class Temperature(torch.nn.Module):
         self, observation_space):
         size = self.encoder.initialize(
             observation_space)
-        self.model = EtaMLP(in_dim=size,out_dim=1,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden)
+        self.model = EtaMLP(in_dim=size,out_dim=1,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden).to(self.device)
         
     def forward(self, *inputs):
         out = self.model(*inputs)

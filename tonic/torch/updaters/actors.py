@@ -719,7 +719,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 self.log_temperature) + FLOAT_EPSILON
             
         weights, temperature_loss = weights_and_temperature_loss(
-            values, self.epsilon, temperature)
+            values, self.epsilon, temperature.to('cpu'))
 
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
