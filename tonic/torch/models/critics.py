@@ -76,16 +76,15 @@ class DistributionalValueHead(torch.nn.Module):
     
     
 class GaussianMixtureHead(torch.nn.Module):
-    def __init__(self, num_dimensions: int, num_components: int, init_scale: Optional[float] = None):
+    def __init__(self, num_dimensions = 1 , num_components = 5 , init_scale= 1e-3 ):
         super().__init__()
         
-        self.num_dimensions = num_dimensions
-        self.num_components = num_components
-
-        self.init_scale = init_scale
+        self.num_dimensions = num_dimensions # since Q value is scalar it is chosen as 1.
+        self.num_components = num_components # number of Gaussian components of the mixture, chosen as 5 as paper suggests.
+        self.init_scale = init_scale  # value 1e-3 copied from ACME 
 
         if self.init_scale is not None:
-            self.scale_factor = self.init_scale / F.softplus(torch.tensor(0.))
+            self.scale_factor = float(self.init_scale / F.softplus(torch.tensor(0.)))
         else:
             self.scale_factor = 1.0 
                
@@ -95,11 +94,12 @@ class GaussianMixtureHead(torch.nn.Module):
             
         self.w_init  = lambda tensor: variance_scaling_init(tensor, scale=1e-5)
             
-    def initialize(self, input_size,  device = 'cpu'):
+    def initialize(self, input_size,  return_normalizer=None ,device = 'cpu'):
         
 
         self.input_size = input_size   
         self.device = device
+        self.return_normalizer = return_normalizer
     
 
         self.logit_layer = torch.nn.Linear(self.input_size,self.logit_size).to(self.device)

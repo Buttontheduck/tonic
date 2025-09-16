@@ -686,8 +686,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 tiled_observations)
             flat_actions = updaters.merge_first_two_dims(actions)
             value_dist = self.model.target_critic(flat_observations, flat_actions)
-            values = value_dist.mean()
-            values = values.view(self.num_samples, -1)
+            values = value_dist.mean.squeeze(-1).view(self.num_samples, -1)
 
 
 

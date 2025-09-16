@@ -4,7 +4,7 @@ from tonic import logger, replays  # noqa
 from tonic.torch import agents, models, normalizers, updaters
 
 from tonic.torch.agents.diffusion_utils.utils import IdentityEncoder, IdentityTorso
-from configs.utils.builder_k_diffusion import build_model, build_actor_updater, build_critic_updater,build_replay_updater
+from configs.utils.builder_k_diffusion_mog import build_model, build_actor_updater, build_critic_updater,build_replay_updater
 
 
 
@@ -17,7 +17,7 @@ def default_model():
         critic=models.Critic(
             encoder=models.ObservationActionEncoder(),
             torso=models.LayerNormMLP((256, 256)),
-            head=models.GaussianMixtureHead(),
+            head=models.GaussianMixtureHead(num_dimensions=1,num_components=5,init_scale=0.001),
             device='cpu'),
         observation_normalizer=normalizers.MeanStd(),
         actor_squash=False,

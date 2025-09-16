@@ -396,13 +396,7 @@ class MixtureOfGaussian:
 
             return dict(loss=loss.detach())
             
-
-
-                
-
             
-        
-
 class DiffusionMixtureOfGaussian:
     def __init__(
         self, num_action_samples=20, num_value_samples=20, evaluate_stochastic_policy=True, optimizer=None, gradient_clip=0):
@@ -435,48 +429,25 @@ class DiffusionMixtureOfGaussian:
                 next_observations = updaters.merge_first_two_dims(next_observations)
 
                 z_distributions =  self.model.target_critic(next_observations, next_actions)
-                z_samples = z_distributions.rsample((self.num_value_samples,))
+                z_samples = z_distributions.sample((self.num_value_samples,))
                 z_samples = z_samples.view(self.num_value_samples * self.num_action_samples, -1, 1)
 
             else:
                 # FIXME: Is there a way to make diffusion models deterministic anyway? Fixing the Noise, and sampling only 1 action?
                 raise ValueError("\n Diffusion Models do not have mean \n")
-                
 
+            r    = rewards.view(1, -1, 1)
+            disc = discounts.view(1, -1, 1)
+            target_q = (r + disc * z_samples)   
 
-            r = rewards.view(-1, 1)            
-            disc = discounts.view(-1, 1)       
-            target_q = r + disc * z_samples  
-
-            current_z_distributions = self.model.critic(observations, actions)  
-
-            log_probs = current_z_distributions.log_prob(target_q) 
-            loss = -log_probs.mean()
-            
-            self.optimizer.zero_grad()
-
-            loss.backward()
-
-            if self.gradient_clip > 0:
-                torch.nn.utils.clip_grad_norm_(self.variables, self.gradient_clip)
-
-            self.optimizer.step()
-
-            return dict(loss=loss.detach())
-
-
-
-
-
-
+        current_z_distributions = self.model.critic(observations, actions)  
+        log_probs = current_z_distributions.log_prob(target_q) 
+        loss = -log_probs.mean()
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        self.optimizer.zero_grad()
+        loss.backward()
+        if self.gradient_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.variables, self.gradient_clip)
+        self.optimizer.step()
+
+        return dict(loss=loss.detach())
