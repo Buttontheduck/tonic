@@ -334,7 +334,7 @@ class EtaMLP(nn.Module):
         super().__init__()
 
 
-        self.eta_eps = 1e-8
+        self.eta_eps = 1e-4
         # Main network with additional input for condition
         layers = []
 

@@ -267,7 +267,7 @@ class DiffusionPolicyHead(torch.nn.Module):
            
             sigma_batch_next  = (sigmas[i + 1] * s_in).unsqueeze(1)
             
-            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
+            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i].item()<= s_tmax else 0.
             eps = torch.randn_like(action) * s_noise
             sigma_hat = sigmas[i] * (gamma + 1)
             # if gamma > 0, use additional noise level for computation ODE-> SDE Solver
@@ -313,7 +313,7 @@ class DiffusionPolicyHead(torch.nn.Module):
         s_in = action.new_ones([action.shape[0]])
         for i in trange(len(sigmas) - 1, disable=True):
             # compute stochastic gamma if s_churn > 0: 
-            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
+            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i].item() <= s_tmax else 0.
 
             eps = torch.randn_like(action) * s_noise
             sigma_hat = sigmas[i] * (gamma + 1)
@@ -401,7 +401,7 @@ class DiffusionPolicyHead(torch.nn.Module):
 
         s_in = action.new_ones([action.shape[0]])
         for i in trange(len(sigmas) - 1, disable=True):
-            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0. 
+            gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i].item() <= s_tmax else 0. 
             eps = torch.randn_like(action) * s_noise    # sample current noise depnding on S_noise 
             sigma_hat = sigmas[i] * (gamma + 1)         # add noise to sigma
             # print(action[:, -1, :])
