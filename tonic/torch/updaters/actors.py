@@ -498,6 +498,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             lambda params: torch.optim.Adam(params, lr=3e-4))
         self.dual_optimizer = dual_optimizer or (
             lambda params: torch.optim.Adam(params, lr=1e-2))
+        self.temperature_optimizer = actor_optimizer or (
+            lambda params: torch.optim.Adam(params, lr=1e-2))
         self.actor_gradient_clip = actor_gradient_clip
         self.dual_gradient_clip = dual_gradient_clip
         self.sigma_mean = sigma_mean
@@ -515,10 +517,11 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         self.actor_optimizer = self.actor_optimizer(self.actor_variables)
         
 
-        # Dual variables.
 
-        
-        if not self.temperature_dependent:
+        if self.temperature_dependent:
+            self.temperature_variables = models.trainable_variables(self.model.temperature)
+            self.temperature_optimizer = self.temperature_optimizer(self.temperature_variables)
+        else:
             self.dual_variables = []
             self.log_temperature = torch.nn.Parameter(torch.as_tensor(
                 [self.initial_log_temperature], dtype=torch.float32))
@@ -529,6 +532,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                     [self.initial_log_temperature], dtype=torch.float32))
                 self.dual_variables.append(self.log_penalty_temperature)
             self.dual_optimizer = self.dual_optimizer(self.dual_variables)
+
 
     def __call__(self, observations):
         
@@ -708,11 +712,9 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
 
         self.actor_optimizer.zero_grad()
-        if not self.temperature_dependent:
-            self.dual_optimizer.zero_grad()
-
         
         if self.temperature_dependent:
+            self.temperature_optimizer.zero_grad()
             temperature = self.model.temperature(observations.to(self.device))
         else:
             temperature = torch.nn.functional.softplus(
@@ -726,6 +728,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         
         logger.store('E_inference/Weights', weights, log_weights=True)       
         logger.store('E_inference/kl_e_step', kl_e_step, stats=True)
+        logger.store('E_inference/η', temperature.detach().cpu(), stats=True)
         logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
 
         
@@ -750,7 +753,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         dual_loss = temperature_loss
 
             
-        loss = policy_loss.cpu() + dual_loss
+        loss = policy_loss + dual_loss
 
         loss.backward()
 
@@ -762,27 +765,18 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 self.dual_variables, self.dual_gradient_clip)
             
         self.actor_optimizer.step()
+        self.temperature_optimizer.step()
         
-        if not self.temperature_dependent:
-            self.dual_optimizer.step()
-
-            dual_variables = dict(
-            temperature=temperature.detach())
+      
+        dual_variables = dict(
+            temperature=temperature.detach().cpu())
             
         if self.action_penalization:
             dual_variables['penalty_temperature'] = \
                 penalty_temperature.detach()
                 
                 
-        if self.temperature_dependent:
-            
-            return dict(
-            policy_loss=policy_loss.detach(),
-            temperature_loss=temperature_loss.detach())
-            
-        else:
-            
-            return dict(
+        return dict(
                 policy_loss=policy_loss.detach(),
                 temperature_loss=temperature_loss.detach(),
                 **dual_variables)
