@@ -706,8 +706,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 tiled_observations)
             flat_actions = updaters.merge_first_two_dims(actions)
             value_dist = self.model.target_critic(flat_observations, flat_actions)
-            values = value_dist.mean()
-            values = values.view(self.num_samples, -1)
+            #values = value_dist.mean()
+            values = value_dist.view(self.num_samples, -1)
 
 
 
@@ -721,15 +721,15 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 self.log_temperature) + FLOAT_EPSILON
             
         weights, temperature_loss = weights_and_temperature_loss(
-            values, self.epsilon, temperature.to('cpu'))
+            values, self.epsilon, temperature)
 
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
         
-        logger.store('E_inference/Weights', weights, log_weights=True)       
-        logger.store('E_inference/kl_e_step', kl_e_step, stats=True)
+        logger.store('E_inference/Weights',  weights.detach().cpu()   , log_weights=True)      
+        logger.store('E_inference/kl_e_step', kl_e_step.detach().cpu(), stats=True)
         logger.store('E_inference/η', temperature.detach().cpu(), stats=True)
-        logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
+        logger.store('E_inference/Effective_Sample_Size', ess.detach().cpu(), stats=True)
 
         
         # Action penalization is quadratic beyond [-1, 1].
