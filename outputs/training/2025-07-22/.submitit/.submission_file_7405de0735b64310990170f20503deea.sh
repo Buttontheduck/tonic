@@ -1,1 +1,0 @@
-/pfs/data6/home/ka/ka_anthropomatik/ka_ln2554/mpo_diff/tonic/outputs/training/2025-07-22/.submitit/788470/788470_submission.sh
