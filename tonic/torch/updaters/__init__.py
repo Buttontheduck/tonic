@@ -9,6 +9,7 @@ from .actors import StochasticPolicyGradient
 from .actors import TrustRegionPolicyGradient
 from .actors import TwinCriticSoftDeterministicPolicyGradient
 from .actors import DiffusionMaximumAPosterioriPolicyOptimization
+from .actors import TwinCriticDiffusionMaximumAPosterioriPolicyOptimization
 
 from .critics import DeterministicQLearning
 from .critics import DistributionalDeterministicQLearning
@@ -19,6 +20,9 @@ from .critics import TwinCriticDeterministicQLearning
 from .critics import TwinCriticSoftQLearning
 from .critics import VRegression
 from .critics import DiffusionExpectedSARSA
+from .critics import TwinCriticDiffusionExpectedSARSA
+
+
 
 from .optimizers import ConjugateGradient
 
@@ -32,4 +36,4 @@ __all__ = [
     DeterministicQLearning, DistributionalDeterministicQLearning,
     ExpectedSARSA, DiffusionExpectedSARSA, QRegression, TargetActionNoise,
     TwinCriticDeterministicQLearning, TwinCriticSoftQLearning, VRegression,
-    ConjugateGradient]
+    ConjugateGradient, TwinCriticDiffusionExpectedSARSA, TwinCriticDiffusionMaximumAPosterioriPolicyOptimization]

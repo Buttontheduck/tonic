@@ -2,6 +2,7 @@ from .actor_critics import ActorCritic
 from .actor_critics import ActorCriticWithTargets
 from .actor_critics import ActorTwinCriticWithTargets
 from .actor_critics import DiffusionActorCriticWithTargets
+from .actor_critics import DiffusionActorTwinCriticWithTargets
 
 from .actors import Actor
 from .actors import DiffusionActor
@@ -25,4 +26,4 @@ __all__ = [
     DetachedScaleGaussianPolicyHead, GaussianPolicyHead,
     DeterministicPolicyHead, Actor, Critic, DistributionalValueHead,
     ValueHead, ActorCritic, ActorCriticWithTargets, ActorTwinCriticWithTargets,DiffusionActor,
-    DiffusionActorCriticWithTargets,DiffusionPolicyHead,Temperature]
+    DiffusionActorCriticWithTargets,DiffusionActorTwinCriticWithTargets,DiffusionPolicyHead,Temperature]

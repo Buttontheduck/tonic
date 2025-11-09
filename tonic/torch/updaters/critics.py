@@ -328,3 +328,66 @@ class DiffusionExpectedSARSA:
         self.optimizer.step()
 
         return dict(loss=loss.detach(), q=values.detach())
+
+
+class TwinCriticDiffusionExpectedSARSA:
+    def __init__(
+        self, num_samples=20, loss=None, optimizer=None, gradient_clip=0
+    ):
+        self.num_samples = num_samples
+        self.loss = loss or torch.nn.MSELoss()
+        self.optimizer = optimizer or (
+            lambda params: torch.optim.Adam(params, lr=3e-4))
+        self.gradient_clip = gradient_clip
+
+    def initialize(self, model):
+        self.model = model
+        variables_1 = models.trainable_variables(self.model.critic_1)
+        variables_2 = models.trainable_variables(self.model.critic_2)
+        self.variables = variables_1 + variables_2
+        self.optimizer = self.optimizer(self.variables)
+
+    def __call__(
+        self, observations, actions, next_observations, rewards, discounts
+    ):
+
+        # Approximate the expected next values.
+        with torch.no_grad():
+            next_actions = self.model.target_actor(
+                next_observations,self.num_samples)
+            next_actions = torch.tanh(next_actions)
+            next_actions = updaters.merge_first_two_dims(next_actions)
+            next_observations = updaters.tile(
+                next_observations, self.num_samples)
+            next_observations = updaters.merge_first_two_dims(
+                next_observations)
+            
+
+            next_values_1 = self.model.target_critic_1(
+                next_observations, next_actions)
+            next_values_2 = self.model.target_critic_2(
+                next_observations, next_actions)
+            next_values = torch.min(next_values_1, next_values_2)
+                        
+
+            next_values = next_values.view(self.num_samples, -1)
+            next_values = next_values.mean(dim=0)
+            returns = rewards.to(next_values.device) + discounts.to(next_values.device) * next_values
+
+
+        self.optimizer.zero_grad()
+
+        values_1 = self.model.critic_1(observations, torch.tanh(actions))
+        values_2 = self.model.critic_2(observations, torch.tanh(actions))        
+        
+        loss_1 = self.loss(returns, values_1)
+        loss_2 = self.loss(returns, values_2)
+
+        loss = loss_1 + loss_2
+
+        loss.backward()
+        if self.gradient_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.variables, self.gradient_clip)
+        self.optimizer.step()
+
+        return dict(loss=loss.detach(), q1=values_1.detach(), q2=values_2.detach())

@@ -753,3 +753,294 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             temperature_loss=temperature_loss.detach(),
             **dual_variables)
             
+
+
+
+class TwinCriticDiffusionMaximumAPosterioriPolicyOptimization:
+    def __init__(
+        self, num_samples=20, epsilon=1e-1, epsilon_penalty=1e-3,
+        epsilon_mean=1e-3, epsilon_std=1e-6, initial_log_temperature=1.,
+        initial_log_alpha_mean=1., initial_log_alpha_std=10.,
+        min_log_dual=-18., per_dim_constraining=True, action_penalization=True,
+        actor_optimizer=None, dual_optimizer=None, actor_gradient_clip=0,dual_gradient_clip=0,
+        sigma_mean=-1.2, sigma_std=1.2, sigma_min=0.001, sigma_max=80, rho =7 ,density_type ='lognormal'):
+        
+        self.num_samples = num_samples
+        self.epsilon = epsilon
+        self.epsilon_mean = epsilon_mean
+        self.epsilon_std = epsilon_std
+        self.initial_log_temperature = initial_log_temperature
+        self.initial_log_alpha_mean = initial_log_alpha_mean
+        self.initial_log_alpha_std = initial_log_alpha_std
+        self.min_log_dual = torch.as_tensor(min_log_dual, dtype=torch.float32)
+        self.action_penalization = action_penalization
+        self.epsilon_penalty = epsilon_penalty
+        self.per_dim_constraining = per_dim_constraining
+        self.actor_optimizer = actor_optimizer or (
+            lambda params: torch.optim.Adam(params, lr=3e-4))
+        self.dual_optimizer = dual_optimizer or (
+            lambda params: torch.optim.Adam(params, lr=1e-2))
+        self.actor_gradient_clip = actor_gradient_clip
+        self.dual_gradient_clip = dual_gradient_clip
+        self.sigma_mean = sigma_mean
+        self.sigma_std = sigma_std
+        self.sigma_max = sigma_max
+        self.sigma_min = sigma_min
+        self.rho = rho
+        self.density_type = density_type
+        
+    def initialize(self, model, action_space):
+        self.model = model
+        self.denoiser = self.model.actor.head.model
+        self.device = next(self.denoiser.parameters()).device
+        self.actor_variables = models.trainable_variables(self.model.actor)
+        self.actor_optimizer = self.actor_optimizer(self.actor_variables)
+        
+
+        # Dual variables.
+        self.dual_variables = []
+        self.log_temperature = torch.nn.Parameter(torch.as_tensor(
+            [self.initial_log_temperature], dtype=torch.float32))
+        self.dual_variables.append(self.log_temperature)
+        shape = [action_space.shape[0]] if self.per_dim_constraining else [1]
+        self.log_alpha_mean = torch.nn.Parameter(torch.full(
+            shape, self.initial_log_alpha_mean, dtype=torch.float32))
+        #self.dual_variables.append(self.log_alpha_mean)
+        self.log_alpha_std = torch.nn.Parameter(torch.full(
+            shape, self.initial_log_alpha_std, dtype=torch.float32))
+        #self.dual_variables.append(self.log_alpha_std)
+        if self.action_penalization:
+            self.log_penalty_temperature = torch.nn.Parameter(torch.as_tensor(
+                [self.initial_log_temperature], dtype=torch.float32))
+            self.dual_variables.append(self.log_penalty_temperature)
+        self.dual_optimizer = self.dual_optimizer(self.dual_variables)
+
+    def __call__(self, observations):
+        
+        def compute_nonparametric_kl_from_normalized_weights(
+            normalized_weights: torch.Tensor) -> torch.Tensor:
+            
+            
+            """ E-Step KL """
+            """Estimate the actualized KL between the non-parametric and target policies."""
+            # Compute integrand.
+            num_action_samples = normalized_weights.shape[0] / 1.
+            integrand = torch.log(num_action_samples * normalized_weights + 1e-8)
+            # Return the expectation with respect to the non-parametric policy.
+            kl_sample = torch.sum(normalized_weights * integrand, dim=0)
+            
+            kl_mean = kl_sample.mean()
+            return kl_mean
+        
+        def effective_sample_size(weights: torch.Tensor, dim: int = 0) -> torch.Tensor:
+            """
+            Effective sample size along the given dim.
+            Assumes `weights.sum(dim) == 1` (already normalized).
+            Returns a tensor with `weights.shape` minus the chosen dim.
+            """
+            return 1.0 / (weights.pow(2).sum(dim=dim))
+            
+        def c_skip_fn(sigma, sigma_data):
+            return sigma_data**2 / (sigma**2 + sigma_data**2)
+
+        def c_out_fn(sigma, sigma_data):
+            return sigma * sigma_data / torch.sqrt(sigma_data**2 + sigma**2)
+
+        def c_in_fn(sigma, sigma_data):
+            return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
+
+        def c_noise_fn(sigma):
+            return torch.log(sigma)*0.25
+        
+        def make_sample_density():
+            """ 
+            Generate a sample density function based on the desired type for training the model
+            """
+            sd_config = {
+                        "loc":   0.5,   
+                        "scale": 0.5,   
+                        "min_value": self.sigma_min, 
+                        "max_value": self.sigma_max,
+                        }
+
+            if self.density_type == 'lognormal':
+                loc = self.sigma_mean  
+                scale = self.sigma_std 
+                return partial(utils.rand_log_normal, loc=loc, scale=scale)
+
+            if self.density_type == 'loglogistic':
+                loc = sd_config['loc'] if 'loc' in sd_config else math.log(self.denoiser.sigma_data)
+                scale = sd_config['scale'] if 'scale' in sd_config else 0.5
+                min_value = sd_config['min_value'] if 'min_value' in sd_config else self.sigma_min
+                max_value = sd_config['max_value'] if 'max_value' in sd_config else self.sigma_max
+                return partial(utils.rand_log_logistic, loc=loc, scale=scale, min_value=min_value, max_value=max_value)
+
+            if self.density_type == 'loguniform':
+                min_value = sd_config['min_value'] if 'min_value' in sd_config else self.sigma_min
+                max_value = sd_config['max_value'] if 'max_value' in sd_config else self.sigma_max
+                return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
+            
+            if self.density_type == 'uniform':
+                return partial(utils.rand_uniform, min_value=self.sigma_min, max_value=self.sigma_max)
+
+            if self.density_type == 'v-diffusion':
+                min_value = self.min_value if 'min_value' in sd_config else self.sigma_min
+                max_value = sd_config['max_value'] if 'max_value' in sd_config else self.sigma_max
+                return partial(utils.rand_v_diffusion, sigma_data=self.sigma_data, min_value=min_value, max_value=max_value)
+            if self.density_type == 'discrete':
+                sigmas = get_sigmas_exponential(self.n_sampling_steps, self.sigma_min, self.sigma_max, self.device)
+                return partial(utils.rand_discrete, values=sigmas)
+            else:
+                raise ValueError('Unknown sample density type')
+      
+        def score_matching_loss(action, state, q_weights, sigma_data):
+           
+
+            num_sample = action.shape[0]
+            batch_size = action.shape[1]
+            
+            action = updaters.merge_first_two_dims(action).to(self.device)
+            state_expanded = state.repeat(num_sample, 1) 
+            q_weights = updaters.merge_first_two_dims(q_weights).to(self.device)
+            
+            density = make_sample_density()
+            
+            sigma = density(shape=(batch_size*num_sample,), device=self.device)
+
+            noise = append_dims(sigma, action.ndim) * torch.randn_like(action,device=self.device)
+            
+            noised_action = action + noise
+
+
+            c_skip  = append_dims( c_skip_fn(sigma, sigma_data) ,action.ndim)
+            c_out   = append_dims( c_out_fn(sigma, sigma_data)  ,action.ndim)
+            c_in    = append_dims( c_in_fn(sigma, sigma_data)   ,action.ndim)
+            c_noise = append_dims( c_noise_fn(sigma)            ,action.ndim)
+            
+
+            scaled_noised_action = c_in * noised_action
+
+            out = self.denoiser(scaled_noised_action.to(self.device), c_noise.to(self.device), state_expanded.to(self.device)) ## NN Model
+   
+            residual = out - (1.0 / c_out) * (action - c_skip*noised_action)  # Equals: ( Denoised_Action - Action )*(1/c_out), Beso uses this
+            unweighted_loss = torch.mean(residual**2, dim=-1)
+            loss = unweighted_loss*q_weights
+            return loss.mean()
+
+        def weights_and_temperature_loss(q_values, epsilon, temperature):
+            tempered_q_values = q_values.detach() / temperature
+            weights = torch.nn.functional.softmax(tempered_q_values, dim=0)
+            weights = weights.detach()
+
+            # Temperature loss (dual of the E-step).
+            q_log_sum_exp = torch.logsumexp(tempered_q_values, dim=0)
+            num_actions = torch.as_tensor(
+                q_values.shape[0], dtype=torch.float32)
+            log_num_actions = torch.log(num_actions)
+            loss = epsilon + (q_log_sum_exp).mean() - log_num_actions
+            loss = temperature * loss
+
+            return weights, loss
+
+        # Use independent normals to satisfy KL constraints per-dimension.
+        def independent_normals(distribution_1, distribution_2=None):
+            distribution_2 = distribution_2 or distribution_1
+            return torch.distributions.independent.Independent(
+                torch.distributions.normal.Normal(
+                    distribution_1.mean, distribution_2.stddev), -1)
+
+        with torch.no_grad():
+            self.log_temperature.data.copy_(
+                torch.maximum(self.min_log_dual, self.log_temperature))
+            self.log_alpha_mean.data.copy_(
+                torch.maximum(self.min_log_dual, self.log_alpha_mean))
+            self.log_alpha_std.data.copy_(
+                torch.maximum(self.min_log_dual, self.log_alpha_std))
+            if self.action_penalization:
+                self.log_penalty_temperature.data.copy_(torch.maximum(
+                    self.min_log_dual, self.log_penalty_temperature))
+
+            unbounded_actions = self.model.target_actor(observations,self.num_samples).to("cpu")
+            actions = torch.tanh(unbounded_actions)
+    
+
+            
+
+            tiled_observations = updaters.tile(observations, self.num_samples)
+            flat_observations = updaters.merge_first_two_dims(
+                tiled_observations)
+            flat_actions = updaters.merge_first_two_dims(actions)
+
+            values_1 = self.model.target_critic_1(flat_observations, flat_actions).to("cpu")
+            values_1 = values_1.view(self.num_samples, -1)
+
+            values_2 = self.model.target_critic_2(flat_observations, flat_actions).to("cpu")
+            values_2 = values_2.view(self.num_samples, -1)
+            values = torch.min(values_1, values_2)
+
+
+
+
+        self.actor_optimizer.zero_grad()
+        self.dual_optimizer.zero_grad()
+
+        
+
+        temperature = torch.nn.functional.softplus(
+            self.log_temperature) + FLOAT_EPSILON
+        weights, temperature_loss = weights_and_temperature_loss(
+            values, self.epsilon, temperature)
+
+        kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
+        ess = effective_sample_size(weights)
+
+        logger.store('Q/Difference',torch.mean(values.detach().cpu().max(dim=0).values -values.detach().cpu().min(dim=0).values) , stats=True)
+        logger.store('Q/values', values.detach().cpu() , log_weights=True)    
+        logger.store('E_inference/Weights', weights, log_weights=True)       
+        logger.store('E_inference/kl_e_step', kl_e_step, stats=True)
+        logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
+
+        
+        # Action penalization is quadratic beyond [-1, 1].
+        
+        if self.action_penalization:
+            penalty_temperature = torch.nn.functional.softplus(
+                self.log_penalty_temperature) + FLOAT_EPSILON
+            diff_bounds = actions - torch.clamp(actions, -1, 1)
+            action_bound_costs = -torch.norm(diff_bounds, dim=-1)
+            penalty_weights, penalty_temperature_loss = \
+                weights_and_temperature_loss(
+                    action_bound_costs,
+                    self.epsilon_penalty, penalty_temperature)
+            weights += penalty_weights
+            temperature_loss += penalty_temperature_loss
+        
+
+        policy_loss = score_matching_loss(unbounded_actions.to(self.device),observations,weights,self.denoiser.sigma_data)
+           
+        dual_loss = temperature_loss
+        loss = policy_loss.cpu() + dual_loss
+
+        loss.backward()
+
+        if self.actor_gradient_clip > 0:
+            torch.nn.utils.clip_grad_norm_(
+                self.actor_variables, self.actor_gradient_clip)
+        if self.dual_gradient_clip>0:
+            torch.nn.utils.clip_grad_norm_(
+                self.dual_variables, self.dual_gradient_clip)
+            
+        self.actor_optimizer.step()
+        self.dual_optimizer.step()
+
+        dual_variables = dict(
+            temperature=temperature.detach())
+        if self.action_penalization:
+            dual_variables['penalty_temperature'] = \
+                penalty_temperature.detach()
+
+        return dict(
+            policy_loss=policy_loss.detach(),
+            temperature_loss=temperature_loss.detach(),
+            **dual_variables)
+            
