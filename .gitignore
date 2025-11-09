@@ -5,3 +5,6 @@
 __pycache__/
 MUJOCO_LOG.TXT
 *DS_Store
+multirun/
+outputs/
+wandb/

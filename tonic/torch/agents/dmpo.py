@@ -28,13 +28,14 @@ class DMPO(agents.Agent):
     
 
     def __init__(
-        self, model, replay_updater, actor_updater, critic_updater
+        self, model, replay_updater, actor_updater, critic_updater, update_delay
     ):
         self.model = build_model(model) or default_model() 
         self.replay = build_replay_updater(replay_updater)   or  replays.Buffer(return_steps=5)
         self.actor_updater = build_actor_updater(actor_updater) or \
             updaters.DiffusionMaximumAPosterioriPolicyOptimization()
         self.critic_updater = build_critic_updater(critic_updater) or updaters.DiffusionExpectedSARSA()
+        self.update_delay = update_delay
         
         
 
@@ -86,19 +87,19 @@ class DMPO(agents.Agent):
         with torch.no_grad():
             return self.model.actor(observations)
 
+
     def _update(self, steps):
         keys = ('observations', 'actions', 'next_observations', 'rewards',
                 'discounts')
-
-        # Update both the actor and the critic multiple times.
-        for batch in self.replay.get(*keys, steps=steps):
+        for i, batch in enumerate(self.replay.get(*keys, steps=steps)):
             batch = {k: torch.as_tensor(v) for k, v in batch.items()}
-            infos = self._update_actor_critic(**batch)
-
+            if (i + 1) % self.update_delay == 0:
+                infos = self._update_actor_critic(**batch)
+            else:
+                infos = dict(critic=self.critic_updater(**batch))
             for key in infos:
                 for k, v in infos[key].items():
                     logger.store(key + '/' + k, v.to('cpu').numpy())
-
         # Update the normalizers.
         if self.model.observation_normalizer:
             self.model.observation_normalizer.update()
