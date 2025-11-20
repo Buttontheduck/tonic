@@ -702,10 +702,29 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
+        
+        median_weight = torch.median(weights, dim=0).values 
+        sorted_weights, sorted_indices = torch.sort(weights, dim=0, descending=True)
+
+        w1 = sorted_weights[0]  # max, shape [256]
+        w2 = sorted_weights[1]  # 2nd max, shape [256]
+        w3 = sorted_weights[2]  # 3rd max, shape [256]
+        w4 = sorted_weights[4]  # 3rd max, shape [256]
+        
+        eps = 1e-8
+        ratio_1_2 = w1 / (w2 + eps)
+        ratio_2_3 = w2 / (w3 + eps)
+        ratio_3_4 = w3 / (w4 + eps)
+        
+        
+        logger.store('W/Ratio/ratio_1_2', ratio_1_2, stats=True)
+        logger.store('W/Ratio/ratio_2_3', ratio_2_3, stats=True)
+        logger.store('W/Ratio/ratio_3_4', ratio_3_4, stats=True)
+        logger.store('W/Ratio/Median_Weight', median_weight, stats=True)
 
         logger.store('Q/Difference',torch.mean(values.detach().cpu().max(dim=0).values -values.detach().cpu().min(dim=0).values) , stats=True)
         logger.store('Q/values', values.detach().cpu() , log_weights=True)    
-        logger.store('E_inference/Weights', weights, log_weights=True)       
+        logger.store('E_inference/Weights', weights, log_weights=True)    
         logger.store('E_inference/kl_e_step', kl_e_step, stats=True)
         logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
 
