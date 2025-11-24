@@ -1,0 +1,129 @@
+agent_config:
+  globals:
+    sigma_max: 80
+    sigma_min: 0.002
+    device: mps
+  agent_config:
+    model:
+      name: DiffusionActorCriticWithTargets
+      actor:
+        name: DiffusionActor
+        encoder:
+          name: IdentityEncoder
+        torso:
+          name: IdentityTorso
+        head:
+          name: DiffusionPolicyHead
+          device: ${agent_config.globals.device}
+          num_diffusion_steps: 2
+          hidden_dim: 256
+          embed_dim: 72
+          embed_type: sinusoidal
+          n_hidden: 4
+          sigma_data: 1
+          sampler_type: ddim
+          model_type: mlp
+          sigma_max: ${agent_config.globals.sigma_max}
+          sigma_min: ${agent_config.globals.sigma_min}
+          rho: 7
+          s_churn: 40
+          s_tmin: 0.05
+          s_tmax: 50
+          s_noise: 1.007
+          eta: 1.0
+          noise_type: karras
+      critic:
+        name: Critic
+        encoder:
+          name: ObservationActionEncoder
+        torso:
+          name: MLP
+          hidden_layers:
+          - 256
+          - 256
+          activation: ReLU
+        head:
+          name: ValueHead
+        device: ${agent_config.globals.device}
+      observation_normalizer:
+        name: MeanStd
+      return_normalizer: null
+      actor_squash: false
+      action_scale: 1
+      target_coeff: 0.005
+    replay_updater:
+      name: Buffer
+      size: 1000000
+      batch_size: 256
+      discount_factor: 0.99
+      steps_before_batches: 1000
+      return_steps: 5
+      steps_between_batches: 50
+      sigma_data: null
+    actor_updater:
+      name: DiffusionMaximumAPosterioriPolicyOptimization
+      num_samples: 20
+      epsilon: 1
+      epsilon_penalty: 0.001
+      epsilon_mean: 0.001
+      epsilon_std: 1.0e-06
+      initial_log_temperature: 1.0
+      initial_log_alpha_mean: 1.0
+      initial_log_alpha_std: 10.0
+      min_log_dual: -18.0
+      per_dim_constraining: true
+      action_penalization: false
+      actor_gradient_clip: 0
+      dual_gradient_clip: 0
+      sigma_mean: -1.2
+      sigma_std: 1.2
+      sigma_max: ${agent_config.globals.sigma_max}
+      sigma_min: ${agent_config.globals.sigma_min}
+      rho: 7
+      density_type: lognormal
+      optimizer:
+        name: Adam
+        learning_rate: 0.0003
+        dual_learning_rate: 0.02
+    critic_updater:
+      name: DiffusionExpectedSARSA
+      num_samples: 20
+      optimizer:
+        name: Adam
+        learning_rate: 0.0003
+      gradient_clip: 0
+trainer_config:
+  trainer_config:
+    steps: 1000100
+    epoch_steps: 1000
+    save_steps: 10000
+    test_episodes: 4
+    show_progress: true
+    replace_checkpoint: false
+    test_freq: 10
+wandb_config:
+  wandb_config:
+    name: test
+    project: Debug
+    entity: null
+    mode: online
+    group: $Epsilon_${agent_config.agent_config.actor_updater.epsilon}
+    job_type: training
+    tags:
+    - diffusion-policy
+    - dmpo
+    notes: Pendulum
+header: import tonic.torch
+agent: tonic.torch.agents.DMPO()
+environment: tonic.environments.ControlSuite("walker-run")
+test_environment: null
+trainer: tonic.Trainer()
+before_training: ''
+after_training: ''
+parallel: 1
+sequential: 1
+seed: 0
+name: DMPO-X
+environment_name: null
+checkpoint: last
+path: ''

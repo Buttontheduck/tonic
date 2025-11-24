@@ -1,0 +1,14 @@
+after_training: ''
+agent: tonic.torch.agents.DMPO()
+before_training: ''
+checkpoint: last
+environment: tonic.environments.ControlSuite("walker-run")
+environment_name: null
+header: import tonic.torch
+name: DMPO-X
+parallel: 1
+path: ''
+seed: 0
+sequential: 1
+test_environment: null
+trainer: tonic.Trainer()

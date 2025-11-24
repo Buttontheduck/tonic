@@ -678,6 +678,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             unbounded_actions = self.model.target_actor(observations,self.num_samples).to("cpu")
             actions = torch.tanh(unbounded_actions)
             #actions = unbounded_actions
+            
+
 
             
 
@@ -688,6 +690,11 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             value_dist = self.model.target_critic(flat_observations, flat_actions)
             values = value_dist.mean()
             values = values.view(self.num_samples, -1)
+            
+            q_threshold = torch.quantile(values, 0.90, dim=0, keepdim=True) 
+            clipped_values = torch.min(values, q_threshold)           
+            
+            
 
 
 
@@ -699,31 +706,20 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         temperature = torch.nn.functional.softplus(
             self.log_temperature) + FLOAT_EPSILON
         weights, temperature_loss = weights_and_temperature_loss(
-            values, self.epsilon, temperature)
+            clipped_values, self.epsilon, temperature)
 
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
 
-        logger.store('Q/Difference',torch.mean(values.detach().cpu().max(dim=0).values -values.detach().cpu().min(dim=0).values) , stats=True)
-        logger.store('Q/values', values.detach().cpu() , log_weights=True)         
+        logger.store('Q/Difference/min',torch.mean(values.detach().cpu().max(dim=0).values -values.detach().cpu().min(dim=0).values) , stats=True)
+        logger.store('Q/Difference/median',torch.mean(values.detach().cpu().max(dim=0).values -values.detach().cpu().median(dim=0).values) , stats=True)
+        logger.store('Q/values', values.detach().cpu() , log_weights=True)       
         logger.store('E_inference/Weights', weights, log_weights=True)       
         logger.store('E_inference/kl_e_step', kl_e_step, stats=True)
         logger.store('E_inference/Effective_Sample_Size', ess, stats=True)
 
         
         # Action penalization is quadratic beyond [-1, 1].
-        
-        if self.action_penalization:
-            penalty_temperature = torch.nn.functional.softplus(
-                self.log_penalty_temperature) + FLOAT_EPSILON
-            diff_bounds = actions - torch.clamp(actions, -1, 1)
-            action_bound_costs = -torch.norm(diff_bounds, dim=-1)
-            penalty_weights, penalty_temperature_loss = \
-                weights_and_temperature_loss(
-                    action_bound_costs,
-                    self.epsilon_penalty, penalty_temperature)
-            weights += penalty_weights
-            temperature_loss += penalty_temperature_loss
         
 
         policy_loss = score_matching_loss(unbounded_actions.to(self.device),observations,weights,self.denoiser.sigma_data)
