@@ -1,0 +1,101 @@
+agent_config:
+  globals:
+    sigma_max: 80
+    sigma_min: 0.002
+    device: cpu
+  agent_config:
+    model:
+      name: DiffusionActorCriticWithTargets
+      actor:
+        name: DiffusionActor
+        encoder:
+          name: IdentityEncoder
+        torso:
+          name: IdentityTorso
+        head:
+          name: DiffusionPolicyHead
+          device: ${agent_config.globals.device}
+          num_diffusion_steps: 50
+          hidden_dim: 512
+          embed_dim: 80
+          embed_type: sinusoidal
+          n_hidden: 4
+          sigma_data: 1
+          sampler_type: ddim
+          model_type: mlp
+          sigma_max: ${agent_config.globals.sigma_max}
+          sigma_min: ${agent_config.globals.sigma_min}
+          rho: 7
+          s_churn: 0
+          s_tmin: 0
+          s_tmax: float('inf')
+          s_noise: 1
+          eta: 1.0
+          noise_type: karras
+      critic:
+        name: Critic
+        encoder:
+          name: ObservationActionEncoder
+        torso:
+          name: MLP
+          hidden_layers:
+          - 2048
+          - 2048
+          activation: ReLU
+        head:
+          name: DistributionalValueHead
+          v_min: -200
+          v_max: 200
+          num_atoms: 101
+        device: ${agent_config.globals.device}
+      observation_normalizer:
+        name: MeanStd
+      return_normalizer: null
+      actor_squash: false
+      action_scale: 1
+      target_coeff: 0.005
+    replay_updater:
+      name: Buffer
+      size: 1000000
+      batch_size: 256
+      discount_factor: 0.99
+      steps_before_batches: 10000
+      return_steps: 5
+      steps_between_batches: 50
+      sigma_data: null
+    actor_updater:
+      name: DiffusionMaximumAPosterioriPolicyOptimization
+      num_samples: 40
+      epsilon: 0.1
+      epsilon_penalty: 0.001
+      epsilon_mean: 0.001
+      epsilon_std: 1.0e-06
+      initial_log_temperature: 1.0
+      initial_log_alpha_mean: 1.0
+      initial_log_alpha_std: 10.0
+      min_log_dual: -18.0
+      per_dim_constraining: true
+      action_penalization: false
+      actor_gradient_clip: 0
+      dual_gradient_clip: 0
+      sigma_mean: 1.2
+      sigma_std: -1.2
+      sigma_max: ${agent_config.globals.sigma_max}
+      sigma_min: ${agent_config.globals.sigma_min}
+      rho: 7
+      density_type: lognormal
+      optimizer:
+        name: Adam
+        learning_rate: 0.0003
+        dual_learning_rate: 0.02
+    critic_updater:
+      name: DistributionalDeterministicQLearning
+      optimizer:
+        name: Adam
+        learning_rate: 0.0003
+      gradient_clip: 0
+header: import tonic.torch
+environment: tonic.environments.ControlSuite("humanoid-run")
+seed: 0
+checkpoint: last
+path: /Users/batin13/Desktop/KIT/MPO/dmpo/multirun/2025-07-20/03-06-22/0/cartpole-swingup/DMPO-X/0
