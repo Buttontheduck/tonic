@@ -741,9 +741,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
         dual_variables = dict(
             temperature=temperature.detach())
-        if self.action_penalization:
-            dual_variables['penalty_temperature'] = \
-                penalty_temperature.detach()
+
 
         return dict(
             policy_loss=policy_loss.detach(),
