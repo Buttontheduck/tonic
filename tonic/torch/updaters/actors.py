@@ -643,6 +643,8 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return loss.mean()
 
         def weights_and_temperature_loss(q_values, epsilon, temperature):
+            max_q = q_values.detach().max(dim=0, keepdim=True)[0]
+            q_values =  q_values -  max_q
             tempered_q_values = q_values.detach() / temperature
             weights = torch.nn.functional.softmax(tempered_q_values, dim=0)
             weights = weights.detach()
@@ -653,7 +655,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 q_values.shape[0], dtype=torch.float32)
             log_num_actions = torch.log(num_actions)
             loss = epsilon + (q_log_sum_exp).mean() - log_num_actions
-            loss = temperature * loss
+            loss = (temperature * loss) + max_q.mean()
 
             return weights, loss
 
@@ -677,7 +679,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
 
             unbounded_actions = self.model.target_actor(observations,self.num_samples).to("cpu")
             actions = torch.tanh(unbounded_actions)
-            #actions = unbounded_actions
+            
             
 
 
@@ -691,8 +693,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             values = value_dist.mean()
             values = values.view(self.num_samples, -1)
             
-            q_threshold = torch.quantile(values, 0.90, dim=0, keepdim=True) 
-            clipped_values = torch.min(values, q_threshold)           
+        
             
             
 
@@ -706,7 +707,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
         temperature = torch.nn.functional.softplus(
             self.log_temperature) + FLOAT_EPSILON
         weights, temperature_loss = weights_and_temperature_loss(
-            clipped_values, self.epsilon, temperature)
+            values, self.epsilon, temperature)
 
         kl_e_step = compute_nonparametric_kl_from_normalized_weights(weights)
         ess = effective_sample_size(weights)
