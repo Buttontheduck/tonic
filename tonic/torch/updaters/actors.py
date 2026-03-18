@@ -643,8 +643,6 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return loss.mean()
 
         def weights_and_temperature_loss(q_values, epsilon, temperature):
-            max_q = q_values.detach().max(dim=0, keepdim=True)[0]
-            q_values =  q_values -  max_q
             tempered_q_values = q_values.detach() / temperature
             weights = torch.nn.functional.softmax(tempered_q_values, dim=0)
             weights = weights.detach()
@@ -655,7 +653,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
                 q_values.shape[0], dtype=torch.float32)
             log_num_actions = torch.log(num_actions)
             loss = epsilon + (q_log_sum_exp).mean() - log_num_actions
-            loss = (temperature * loss) + max_q.mean()
+            loss = temperature * loss
 
             return weights, loss
 
