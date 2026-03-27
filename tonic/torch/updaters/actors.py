@@ -553,7 +553,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             return 1.0 / torch.sqrt(sigma**2 + sigma_data**2)
 
         def c_noise_fn(sigma):
-            return torch.log(sigma)
+            return torch.log(sigma)*1
         
         def score_matching_loss(action, state, q_weights, sigma_data):
             p_mean = -1.2
@@ -576,8 +576,7 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
             c_noise_expanded = c_noise.expand(-1, 1)
             c_noise_expanded = c_noise_expanded.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
             state_expanded  = state.unsqueeze(0).expand(noisy_action.shape[0], -1, -1)
-            inp = torch.cat([noisy_action, c_noise_expanded], dim=-1)
-            out = self.denoiser(inp.to(self.device), state_expanded.to(self.device)).to("cpu")
+            out = self.denoiser(noisy_action.to(self.device), c_noise_expanded.to(self.device),  state_expanded.to(self.device)).to("cpu")
 
             residual = out - (1.0 / c_out) * (action - c_skip*(action + z))
             unweighted_loss = torch.mean(residual**2, dim=-1)
