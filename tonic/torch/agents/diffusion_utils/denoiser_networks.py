@@ -320,8 +320,10 @@ class ConditionalMLP(nn.Module):
         # condition should be a scalar between 0 and 1
         sigma_emb = self.sigma_embed(sigma) 
         sigma_emb = sigma_emb.squeeze(1)
+        if sigma_emb.shape[0] == 1 and x.shape[0] != 1:
+            sigma_emb = sigma_emb.expand(x.shape[0], -1)
         
-        inp = torch.cat([x, sigma_emb.to(x.device), states.to(x.device)], dim=-1)
+        inp = torch.cat([x, sigma_emb, states], dim=-1)
     
         output = self.network(inp)
         return output

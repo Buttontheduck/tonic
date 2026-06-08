@@ -160,6 +160,8 @@ class DiffusionPolicyHead(torch.nn.Module):
             self.model= ResidualMLPNetwork(in_dim=input_dim,out_dim=self.action_dim,hidden_dim=self.hidden_dim,n_hidden=self.n_hidden,sigma_data=self.sigma_data).to(self.device)
         else:
             raise  ValueError("\n Model type should be either 'mlp' or  'resmlp' \n")
+        self.sigmas = self.get_noise_schedule(
+            self.n_diffusion_steps, self.noise_type).to(self.device)
             
 
     def c_skip_fn(self,sigma, sigma_data):
@@ -177,13 +179,14 @@ class DiffusionPolicyHead(torch.nn.Module):
     def denoiser_fn(self, noised_action, sigma, state):
             scaled_noised_action= self.c_in_fn(sigma, self.model.sigma_data) * noised_action
             c_noise_expanded = self.c_noise_fn(sigma).expand(-1, 1)
-            inner_model_output = self.model(scaled_noised_action, c_noise_expanded, state)
+            inner_model_output = self.model(scaled_noised_action, c_noise_expanded[:1], state)
             return self.c_skip_fn(sigma, self.model.sigma_data) * noised_action + self.c_out_fn(sigma, self.model.sigma_data) * inner_model_output
   
     def inference(self,state):
         
+        state = state.to(self.device)
         batch_size = state.shape[0]
-        sigmas = self.get_noise_schedule(self.n_diffusion_steps,self.noise_type).to(self.device)
+        sigmas = self.sigmas
         noised_action = sigmas[0] * torch.randn(batch_size, self.action_dim, device=self.device)
         
         if self.sampler_type =='ddim':
@@ -472,6 +475,7 @@ class DiffusionPolicyHead(torch.nn.Module):
 
     def forward(self, state, num_sample : int = 1):
 
+        state = state.to(self.device)
         if num_sample>1:
             state_rep = state.unsqueeze(1).expand(-1, num_sample, -1).reshape(-1, state.size(-1)) 
         else:
