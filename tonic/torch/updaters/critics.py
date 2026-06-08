@@ -110,7 +110,7 @@ class DistributionalDeterministicQLearning:
             targets = next_value_distributions.project(returns)
 
         self.optimizer.zero_grad()
-        value_distributions = self.model.critic(observations, torch.tanh(actions))
+        value_distributions = self.model.critic(observations, actions)
         log_probabilities = torch.nn.functional.log_softmax(
             value_distributions.logits, dim=-1)
         loss = -(targets * log_probabilities.to("cpu")).sum(dim=-1).mean()
@@ -320,7 +320,7 @@ class DiffusionExpectedSARSA:
 
 
         self.optimizer.zero_grad()
-        values = self.model.critic(observations, torch.tanh(actions))
+        values = self.model.critic(observations, actions)
         loss = self.loss(returns, values)
 
         loss.backward()

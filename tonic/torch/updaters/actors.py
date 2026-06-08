@@ -639,8 +639,9 @@ class DiffusionMaximumAPosterioriPolicyOptimization:
    
             residual = out - (1.0 / c_out) * (action - c_skip*noised_action)  # Equals: ( Denoised_Action - Action )*(1/c_out), Beso uses this
             unweighted_loss = torch.mean(residual**2, dim=-1)
-            loss = unweighted_loss*q_weights
-            return loss.mean()
+            unweighted_loss = unweighted_loss.view(num_sample, batch_size)
+            q_weights = q_weights.view(num_sample, batch_size)
+            return (unweighted_loss*q_weights).sum(dim=0).mean()
 
         def weights_and_temperature_loss(q_values, epsilon, temperature):
             tempered_q_values = q_values.detach() / temperature

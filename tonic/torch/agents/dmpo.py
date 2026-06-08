@@ -79,12 +79,12 @@ class DMPO(agents.Agent):
     def _step(self, observations):
         observations = torch.as_tensor(observations, dtype=torch.float32)
         with torch.no_grad():
-            return self.model.actor(observations)
+            return torch.tanh(self.model.actor(observations))
 
     def _test_step(self, observations):
         observations = torch.as_tensor(observations, dtype=torch.float32)
         with torch.no_grad():
-            return self.model.actor(observations)
+            return torch.tanh(self.model.actor(observations))
 
     def _update(self, steps):
         keys = ('observations', 'actions', 'next_observations', 'rewards',

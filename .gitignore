@@ -7,3 +7,10 @@ MUJOCO_LOG.TXT
 *DS_Store
 
 outputs/
+
+# experiment outputs
+outputs/
+multirun/
+wandb/
+multirun/
+outputs/
