@@ -1,0 +1,7 @@
+{"time":"2025-11-09T22:38:56.384725+01:00","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"/Users/batin13/Desktop/KIT/MPO/dmpo/tonic/multirun/2025-11-09/22-38-55/0/wandb/offline-run-20251109_223856-ofqs4g60/logs/debug-core.log"}
+{"time":"2025-11-09T22:38:56.492668+01:00","level":"INFO","msg":"created new stream","id":"ofqs4g60"}
+{"time":"2025-11-09T22:38:56.492855+01:00","level":"INFO","msg":"stream: started","id":"ofqs4g60"}
+{"time":"2025-11-09T22:38:56.492891+01:00","level":"INFO","msg":"handler: started","stream_id":"ofqs4g60"}
+{"time":"2025-11-09T22:38:56.493129+01:00","level":"INFO","msg":"writer: Do: started","stream_id":"ofqs4g60"}
+{"time":"2025-11-09T22:38:56.493273+01:00","level":"INFO","msg":"sender: started","stream_id":"ofqs4g60"}
+{"time":"2025-11-09T22:38:56.496858+01:00","level":"INFO","msg":"Starting system monitor"}

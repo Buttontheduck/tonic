@@ -1,0 +1,7 @@
+{"time":"2025-11-20T21:51:40.028114+01:00","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"/Users/batin13/Desktop/KIT/MPO/dmpo/tonic/multirun/2025-11-20/21-51-39/0/wandb/offline-run-20251120_215139-i15e9w46/logs/debug-core.log"}
+{"time":"2025-11-20T21:51:40.135243+01:00","level":"INFO","msg":"created new stream","id":"i15e9w46"}
+{"time":"2025-11-20T21:51:40.135275+01:00","level":"INFO","msg":"stream: started","id":"i15e9w46"}
+{"time":"2025-11-20T21:51:40.135289+01:00","level":"INFO","msg":"writer: Do: started","stream_id":"i15e9w46"}
+{"time":"2025-11-20T21:51:40.135303+01:00","level":"INFO","msg":"handler: started","stream_id":"i15e9w46"}
+{"time":"2025-11-20T21:51:40.135311+01:00","level":"INFO","msg":"sender: started","stream_id":"i15e9w46"}
+{"time":"2025-11-20T21:51:40.137904+01:00","level":"INFO","msg":"Starting system monitor"}

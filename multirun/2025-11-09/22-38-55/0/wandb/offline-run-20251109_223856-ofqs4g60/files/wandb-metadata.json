@@ -1,0 +1,41 @@
+{
+  "os": "macOS-15.6.1-arm64-arm-64bit",
+  "python": "CPython 3.10.0",
+  "startedAt": "2025-11-09T21:38:56.356381Z",
+  "program": "/Users/batin13/Desktop/KIT/MPO/dmpo/run_tonic.py",
+  "git": {
+    "remote": "https://github.com/Buttontheduck/tonic.git",
+    "commit": "134312b45f88bddf8de451b28231abd0aa4dbfbb"
+  },
+  "root": "/Users/batin13/Desktop/KIT/MPO/dmpo/tonic/multirun/2025-11-09/22-38-55/0",
+  "host": "BATINs-MacBook-Pro.local",
+  "executable": "/Users/batin13/anaconda3/envs/old_tonic/bin/python",
+  "cpu_count": 12,
+  "cpu_count_logical": 12,
+  "disk": {
+    "/": {
+      "total": "994662584320",
+      "used": "501947281408"
+    },
+    "/System/Volumes/Data": {
+      "total": "994662584320",
+      "used": "501947281408"
+    }
+  },
+  "memory": {
+    "total": "17179869184"
+  },
+  "cpu": {
+    "count": 12,
+    "countLogical": 12
+  },
+  "apple": {
+    "name": "Apple M2 Pro",
+    "ecpuCores": 4,
+    "pcpuCores": 8,
+    "gpuCores": 19,
+    "memoryGb": 16,
+    "swapTotalBytes": "1073741824",
+    "ramTotalBytes": "17179869184"
+  }
+}

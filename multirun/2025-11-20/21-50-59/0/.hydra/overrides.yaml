@@ -1,0 +1,15 @@
+- seed=0
+- agent_config.globals.device=mps
+- agent_config.agent_config.actor_updater.action_penalization=False
+- agent_config.agent_config.actor_updater.epsilon=1
+- agent_config.agent_config.model.actor.head.num_diffusion_steps=2
+- agent_config.agent_config.model.actor.head.rho=7
+- agent_config.agent_config.model.actor.head.sampler_type=ddim
+- agent_config.globals.sigma_max=80
+- agent_config.globals.sigma_min=0.002
+- agent_config.agent_config.actor_updater.sigma_mean=-1.2
+- agent_config.agent_config.actor_updater.sigma_std=1.2
+- agent_config.agent_config.actor_updater.density_type=lognormal
+- agent_config.agent_config.critic_updater.name=DiffusionExpectedSARSA
+- agent_config.agent_config.model.critic.head.name=ValueHead
+- agent_config.agent_config.replay_updater.steps_before_batches=1000

@@ -15,7 +15,7 @@ from .critics import Critic, DistributionalValueHead, ValueHead
 
 from .encoders import ObservationActionEncoder, ObservationEncoder
 
-from .utils import MLP, trainable_variables
+from .utils import MLP, trainable_variables, StableMLP
 
 from .temperature import Temperature
 
